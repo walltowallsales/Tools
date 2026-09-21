@@ -1,12 +1,11 @@
 {
   "name": "sellerchamp-tools-suite",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "engines": { "node": ">=20" },
   "scripts": {
     "start": "node gateway.js",
-    "check": "node scripts/check-suite.js",
-    "test:recovery": "node scripts/test-recovery.js"
+    "check": "node scripts/check-suite.js"
   },
   "dependencies": {
     "express": "^4.21.2",

@@ -1,4 +1,4 @@
-# SellerChamp Tools Suite v1.3
+# SellerChamp Tools Suite v1.4
 
 One Render service and one persistent disk containing five independently routed modules:
 
@@ -10,7 +10,7 @@ One Render service and one persistent disk containing five independently routed 
 
 The original module source is kept in separate folders under `modules/`. The gateway gives each module its own path and process, so module-specific changes remain isolated. Shared environment settings are normalized by the gateway. One suite-level PIN login covers the dashboard and all five modules for 30 days.
 
-Version 1.3 adds a one-time **Recover Existing Data** screen. It imports Pick batches from the original Pick app, then imports Returns records and their stored photos from the original Returns app. Existing combined-app data is preserved, duplicates are skipped, and the current data file is backed up before imports are committed.
+Version 1.4 removes the completed one-time recovery screen and adds a consistent **← SellerChamp Tools** link to the top of every module. Deploying this update does not change or remove data stored on the persistent disk.
 
 ## Deploy on Render
 
@@ -40,15 +40,9 @@ The one mounted disk is deliberately divided so the two stateful modules cannot 
     └── uploads/
 ```
 
-## Recover existing Pick List and Returns history
+## Preserved data
 
-The two existing disks cannot both be attached directly to the new service. Suite v1.3 includes a guided recovery screen instead:
-
-1. Open **Recover Existing Data** from the suite dashboard.
-2. Enter the original Pick app's Render URL and PIN, then recover and verify Pick batches.
-3. Enter the original Returns app's Render URL and PIN, then recover and verify Returns records and photos.
-
-The source URLs and PINs are used only during the transfer and are not stored. Keep the old paid services and disks until the recovered data has been verified in the combined app.
+Pick and Returns history stays on the mounted persistent disk during this update. The dashboard no longer displays the completed recovery tool.
 
 ## Local test
 

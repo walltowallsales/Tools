@@ -1,4 +1,15 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="format-detection" content="telephone=no"><title>SellerChamp Returns</title><link rel="stylesheet" href="styles.css"></head><body>
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="format-detection" content="telephone=no">
+  <title>SellerChamp Returns</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>.suite-back{display:block;background:#10233f;color:#e6efff;text-decoration:none;font-weight:850;font-size:16px;padding:13px max(16px,env(safe-area-inset-left))}</style>
+</head>
+<body>
+<a class="suite-back" href="/">← SellerChamp Tools</a>
 <div id="pinGate" class="gate hidden"><form id="pinForm" class="card narrow"><h1>Returns</h1><p>Enter PIN</p><input id="pin" inputmode="numeric" type="password" autocomplete="off"><button>Unlock</button><p id="pinError" class="error"></p></form></div>
 <header><h1>SellerChamp Returns <small style="font-size:.45em;opacity:.75">V2-48</small></h1><nav><button class="tab active" data-tab="intake">1. Return Intake</button><button class="tab" data-tab="back">2. Process Returns</button><button class="tab" data-tab="archived">3. Archived</button><button class="tab" data-tab="direct">4. Add Direct</button></nav></header>
 <main>
@@ -9,4 +20,7 @@
 <div class="card"><h3>Search by UPC</h3><label>SellerChamp UPC</label><div class="row"><input id="directUpc" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="Enter UPC"><button id="directUpcSearch">Search UPC</button></div></div>
 <div class="card"><h3>Search by Title</h3><label>SellerChamp Title</label><div class="row"><input id="directTitle" autocomplete="off" placeholder="Enter all or part of title"><button id="directTitleSearch">Search Title</button></div></div>
 <p id="directAltError" class="error"></p><div id="directChoices"></div><div id="directResult"></div></section>
-</main><script src="app.js"></script></body></html>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
