@@ -1,4 +1,4 @@
-# SellerChamp Tools Suite v1.4
+# SellerChamp Tools Suite v1.5
 
 One Render service and one persistent disk containing five independently routed modules:
 
@@ -10,7 +10,7 @@ One Render service and one persistent disk containing five independently routed 
 
 The original module source is kept in separate folders under `modules/`. The gateway gives each module its own path and process, so module-specific changes remain isolated. Shared environment settings are normalized by the gateway. One suite-level PIN login covers the dashboard and all five modules for 30 days.
 
-Version 1.4 removes the completed one-time recovery screen and adds a consistent **← SellerChamp Tools** link to the top of every module. Deploying this update does not change or remove data stored on the persistent disk.
+Version 1.5 updates only **Item - Move or Update Qty**. Its single search field now supports partial SKU, partial UPC, and partial product-title searches while preserving fast exact barcode/SKU lookup. The other four modules are unchanged.
 
 ## Deploy on Render
 

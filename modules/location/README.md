@@ -1,6 +1,12 @@
-# SellerChamp Location Mover v2.32.0
+# SellerChamp Location Mover v2.33.0
 
 This build fixes relocation + Notes behavior by preferring SellerChamp's standard product record when an item can be found by SKU/UPC/ASIN. A full move updates the existing inventory-location record (so the old location is replaced) and prepends `Previously on OLD-LOCATION - ` to `item_remarks`. Catalog Sync remains available as a fallback.
+
+## v2.33.0
+
+- The main search field now finds Products using a partial SKU, partial UPC, or partial title.
+- Exact SKU/UPC/barcode scans still use the fast direct lookup path.
+- Search choices identify why each item matched and show its UPC when available.
 
 # SellerChamp Location Mover
 

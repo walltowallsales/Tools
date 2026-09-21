@@ -7,7 +7,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const TOKEN = process.env.SELLERCHAMP_TOKEN || '';
 const APP_PIN = process.env.APP_PIN || '';
-const SC_BASE = 'https://app.sellerchamp.com';
+const SC_BASE = (process.env.SELLERCHAMP_BASE_URL || 'https://app.sellerchamp.com').replace(/\/$/, '');
 
 app.use(express.json({ limit: '200kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -231,7 +231,7 @@ async function lookupCatalog(code) {
         const exact = items.find(p =>
           [p.catalogue_sku, p.upc, p.asin].filter(Boolean).some(v => String(v).toLowerCase() === code.toLowerCase())
         );
-        return normalizeMasterProduct(exact || items[0]);
+        if (exact) return normalizeMasterProduct(exact);
       }
     } catch (e) {
       // Catalog Sync disabled is a normal fallback case.
@@ -252,8 +252,15 @@ async function lookupLegacy(code) {
       const data = await scFetch(endpoint);
       const items = data.products || [];
       if (items.length) {
-        const exact = items.find(p => [p.sku, p.upc, p.asin].filter(Boolean).some(v => String(v).toLowerCase() === code.toLowerCase()));
-        let p = exact || items[0];
+        const exact = items.find(p => [
+          p.sku, p.upc, p.asin,
+          ...(Array.isArray(p.variants) ? p.variants.flatMap(v => [v.sku, v.upc, v.barcode, v.asin]) : [])
+        ].filter(Boolean).some(v => String(v).toLowerCase() === code.toLowerCase()));
+        if (!exact) continue;
+        const exactVariant = (Array.isArray(exact.variants) ? exact.variants : []).find(v =>
+          [v.sku, v.upc, v.barcode, v.asin].filter(Boolean).some(value => String(value).toLowerCase() === code.toLowerCase())
+        );
+        let p = exactVariant ? { ...exact, sku: exactVariant.sku || exact.sku, upc: exactVariant.upc || exactVariant.barcode || exact.upc } : exact;
         // Fetch full product detail when available so title/photo fields are complete.
         try {
           const detail = await scFetch(`/api/products/${encodeURIComponent(p.id)}.json`);
@@ -404,22 +411,22 @@ function applyManifestMatch(product, match) {
 app.get('/api/status', async (req, res) => {
   try {
     const data = await scFetch('/api/marketplace_accounts');
-    res.json({ ok: true, version: '2.32.0', pinRequired: !!APP_PIN, accounts: (data.marketplace_accounts || []).map(a => ({ id: a.id, name: a.name, marketplace: a.marketplace })) });
+    res.json({ ok: true, version: '2.33.0', pinRequired: !!APP_PIN, accounts: (data.marketplace_accounts || []).map(a => ({ id: a.id, name: a.name, marketplace: a.marketplace })) });
   } catch (e) {
     res.status(e.status || 500).json({ error: 'Could not connect to SellerChamp.', details: e.data || e.message });
   }
 });
 
-app.get('/api/title-search', async (req,res)=>{
+app.get('/api/item-search', async (req,res)=>{
   const q=String(req.query.q||'').trim();
-  if(q.length<2)return res.status(400).json({error:'Enter at least 2 characters of the title.'});
+  if(q.length<2)return res.status(400).json({error:'Enter at least 2 characters from the SKU, UPC, or title.'});
   try{
     const needle=q.toLowerCase(), candidates=[], seen=new Set();
 
-    // SellerChamp's Products endpoint does not reliably honor query/title
-    // parameters for partial title text. Scan Products pages and filter titles
-    // ourselves. Stop after enough matches or the end of the Products list.
-    for(let page=1;page<=25 && candidates.length<30;page++){
+    // SellerChamp's Products endpoint does not reliably honor partial text
+    // filters. Scan Products pages and match SKU, UPC, and title locally.
+    // Stop after 30 choices or the end of the product list.
+    for(let page=1;page<=100 && candidates.length<30;page++){
       let data;
       try{
         data=await scFetch(`/api/products.json?page=${page}&page_size=100`);
@@ -431,14 +438,28 @@ app.get('/api/title-search', async (req,res)=>{
       if(!rows.length)break;
       for(const p of rows){
         const title=String(p.title||p.product_title||'');
-        if(!title.toLowerCase().includes(needle))continue;
-        const sku=p.sku||p.custom_catalogue_sku||p.catalogue_sku||p.upc||p.asin||'';
+        const variants=Array.isArray(p.variants)?p.variants:[];
+        const identifiers=[
+          {type:'SKU',value:p.sku||p.custom_catalogue_sku||p.catalogue_sku||''},
+          {type:'UPC',value:p.upc||p.barcode||''},
+          ...variants.flatMap(v=>[
+            {type:'SKU',value:v.sku||v.custom_catalogue_sku||v.catalogue_sku||''},
+            {type:'UPC',value:v.upc||v.barcode||''}
+          ])
+        ].filter(item=>String(item.value||'').trim());
+        const identifierMatch=identifiers.find(item=>String(item.value).toLowerCase().includes(needle));
+        const titleMatch=title.toLowerCase().includes(needle);
+        if(!identifierMatch&&!titleMatch)continue;
+        const matchedSku=identifierMatch?.type==='SKU'?identifierMatch.value:'';
+        const sku=matchedSku||p.sku||p.custom_catalogue_sku||p.catalogue_sku||variants.find(v=>v.sku)?.sku||p.upc||p.asin||'';
         if(!sku)continue;
-        const key=String(p.id||sku);
+        const upc=(identifierMatch?.type==='UPC'?identifierMatch.value:'')||p.upc||p.barcode||variants.find(v=>v.upc||v.barcode)?.upc||variants.find(v=>v.upc||v.barcode)?.barcode||'';
+        const key=`${String(p.id||'')}|${String(sku).toLowerCase()}`;
         if(seen.has(key))continue;
         seen.add(key);
         candidates.push({
-          id:p.id||'',sku,title,
+          id:p.id||'',sku,upc,title,
+          match_label:identifierMatch?`${identifierMatch.type} match`:'Title match',
           image:p.primary_image||p.primary_image_url||p.image_url||p.image||
             p.product_images?.[0]?.large_image_url||p.product_images?.[0]?.image_url||'',
           quantity_available:Number(p.quantity_available||0)
@@ -450,7 +471,7 @@ app.get('/api/title-search', async (req,res)=>{
 
     res.json({results:candidates.slice(0,30)});
   }catch(e){
-    res.status(e.status||500).json({error:'SellerChamp title search failed.',details:e.data||e.message});
+    res.status(e.status||500).json({error:'SellerChamp item search failed.',details:e.data||e.message});
   }
 });
 
@@ -473,6 +494,12 @@ app.get('/api/lookup', async (req, res) => {
         product.batch_lookup_skipped = true;
         return res.json({ product });
       }
+    }
+
+    // Partial searches use this fast pass first. Do not scan every marketplace
+    // Batch unless an exact result is selected or no Product search result exists.
+    if (req.query.skipBatch === '1') {
+      return res.status(404).json({ error: `No exact SellerChamp Product matched “${code}”.` });
     }
 
     // SLOW FALLBACK: Products did not provide writable inventory. Only now search
