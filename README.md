@@ -1,4 +1,4 @@
-# SellerChamp Tools Suite v1.1
+# SellerChamp Tools Suite v1.2
 
 One Render service and one persistent disk containing five independently routed modules:
 
@@ -9,6 +9,8 @@ One Render service and one persistent disk containing five independently routed 
 5. **Orders - Returns** (`/returns/`) — Returns v2.48
 
 The original module source is kept in separate folders under `modules/`. The gateway gives each module its own path and process, so module-specific changes remain isolated. Shared environment settings are normalized by the gateway. One suite-level PIN login covers the dashboard and all five modules for 30 days.
+
+Version 1.2 preserves Pick List v27's original internal PIN protection while the suite gateway automatically supplies the already-verified shared PIN. This fixes the combined-app `SellerChamp 401: PIN required` error without adding a second login prompt.
 
 ## Deploy on Render
 
