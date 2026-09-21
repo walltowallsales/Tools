@@ -1,0 +1,17 @@
+{
+  "name": "sellerchamp-returns-app",
+  "version": "2.44.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "pdfkit": "^0.16.0"
+  }
+}

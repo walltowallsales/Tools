@@ -1,0 +1,16 @@
+{
+  "name": "sellerchamp-tools-suite",
+  "version": "1.1.0",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node gateway.js",
+    "check": "node scripts/check-suite.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "http-proxy": "^1.18.1",
+    "multer": "^1.4.5-lts.1",
+    "pdfkit": "^0.16.0"
+  }
+}
