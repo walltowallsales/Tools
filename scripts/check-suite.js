@@ -9,7 +9,9 @@ for (const name of expected) {
   }
 }
 const gateway = fs.readFileSync(path.join(__dirname, '..', 'gateway.js'), 'utf8');
+if (!fs.existsSync(path.join(__dirname, '..', 'recovery.js'))) throw new Error('Missing recovery.js');
 for (const slug of ['move', 'inventory', 'auction', 'shipping', 'returns']) {
   if (!gateway.includes(`slug: '${slug}'`)) throw new Error(`Missing gateway route ${slug}`);
 }
-console.log('Suite structure OK: 5 modules and gateway are present.');
+if (!gateway.includes("suite: '1.3.0'")) throw new Error('Suite version is not 1.3.0');
+console.log('Suite structure OK: 5 modules, gateway, and recovery tool are present.');

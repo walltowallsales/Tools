@@ -1,4 +1,4 @@
-# SellerChamp Tools Suite v1.2
+# SellerChamp Tools Suite v1.3
 
 One Render service and one persistent disk containing five independently routed modules:
 
@@ -10,7 +10,7 @@ One Render service and one persistent disk containing five independently routed 
 
 The original module source is kept in separate folders under `modules/`. The gateway gives each module its own path and process, so module-specific changes remain isolated. Shared environment settings are normalized by the gateway. One suite-level PIN login covers the dashboard and all five modules for 30 days.
 
-Version 1.2 preserves Pick List v27's original internal PIN protection while the suite gateway automatically supplies the already-verified shared PIN. This fixes the combined-app `SellerChamp 401: PIN required` error without adding a second login prompt.
+Version 1.3 adds a one-time **Recover Existing Data** screen. It imports Pick batches from the original Pick app, then imports Returns records and their stored photos from the original Returns app. Existing combined-app data is preserved, duplicates are skipped, and the current data file is backed up before imports are committed.
 
 ## Deploy on Render
 
@@ -40,14 +40,15 @@ The one mounted disk is deliberately divided so the two stateful modules cannot 
     └── uploads/
 ```
 
-## Preserve existing Pick List and Returns history
+## Recover existing Pick List and Returns history
 
-The two existing disks cannot both be attached directly to the new service. Their files must be copied into the new disk after the new service exists:
+The two existing disks cannot both be attached directly to the new service. Suite v1.3 includes a guided recovery screen instead:
 
-- From the old Pick List disk, copy `pick-batches.json` to `/var/data/pick/pick-batches.json`.
-- From the old Returns disk, copy `returns.json` to `/var/data/returns/returns.json` and copy its `uploads` folder to `/var/data/returns/uploads`.
+1. Open **Recover Existing Data** from the suite dashboard.
+2. Enter the original Pick app's Render URL and PIN, then recover and verify Pick batches.
+3. Enter the original Returns app's Render URL and PIN, then recover and verify Returns records and photos.
 
-Keep the old paid services and disks until the copied data has been verified in the combined app. If there is no history worth preserving, this migration step can be skipped.
+The source URLs and PINs are used only during the transfer and are not stored. Keep the old paid services and disks until the recovered data has been verified in the combined app.
 
 ## Local test
 
