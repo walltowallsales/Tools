@@ -15,7 +15,8 @@ async function main(){
  try{const base=`http://127.0.0.1:${port}`;let status;
   for(let i=0;i<80;i++){try{const response=await fetch(`${base}/api/status`);status=await response.json();if(response.ok&&!status.building&&status.products===2&&status.batches===1)break}catch{}await new Promise(r=>setTimeout(r,50))}
   assert.equal(status.products,2);assert.equal(status.batches,1);assert.ok(status.progress.rate_limited>=1,'429 retry was not exercised');
-  let response=await fetch(`${base}/api/search?tag=Reserved%20Quantity&source=all`),body=await response.json();assert.equal(body.count,3);assert.deepEqual(body.results.map(x=>x.locations[0].location),['B4','C2','C10']);
+  let response=await fetch(`${base}/api/tags`),body=await response.json();const auctionOption=body.tag_options.find(x=>x.tag==='auction');assert.ok(auctionOption,'auction is missing from dropdown options');assert.equal(auctionOption.product_count,1);assert.equal(auctionOption.batch_count,0);
+  response=await fetch(`${base}/api/search?tag=Reserved%20Quantity&source=all`);body=await response.json();assert.equal(body.count,3);assert.deepEqual(body.results.map(x=>x.locations[0].location),['B4','C2','C10']);
   response=await fetch(`${base}/api/search?tag=auction&source=all`);body=await response.json();assert.equal(body.count,1);assert.equal(body.results[0].sku,'TAG-2');
   response=await fetch(`${base}/api/product/p2/live`);body=await response.json();assert.equal(body.product.locations[0].location,'C2');assert.equal(body.product.quantity_available,1);
   console.log('Tag sorter test passed: Product and Batch tags, natural location order, and live Product reload.');

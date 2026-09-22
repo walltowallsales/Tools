@@ -1,4 +1,4 @@
-# Item - Sort Tags by Location v1.2
+# Item - Sort Tags by Location v1.3
 
 Searches any exact SellerChamp tag across Products and Batch listings, then sorts matching items naturally by warehouse location. It shares the suite's persistent Product index with Location Mover and maintains a Batch-listing index alongside it.
 
@@ -12,3 +12,5 @@ Searches any exact SellerChamp tag across Products and Batch listings, then sort
 Version 1.1 fixes the shared Product index to retain `tags_array` and recognizes nested/alternate Batch tag fields.
 
 Version 1.2 prevents simultaneous Product-index scans, spaces SellerChamp requests, retries HTTP 429 responses automatically, and reports progress/errors on screen.
+
+Version 1.3 replaces free-text entry with a dropdown of every indexed tag. Each option reports its Product and Batch counts and displays results immediately when selected.

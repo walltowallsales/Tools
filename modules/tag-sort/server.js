@@ -78,8 +78,19 @@ async function buildIndexes(){
   }catch(error){buildError=error.message||'Refresh failed.';progress.phase='error';throw error}finally{building=false}
 }
 
-app.get('/api/status',async(req,res)=>{try{await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.2.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
-app.get('/api/tags',(req,res)=>{const all=[...load(PRODUCT_INDEX).items,...load(BATCH_INDEX).items];const tags=[...new Set(all.flatMap(x=>x.tags||[]).map(x=>String(x).trim()).filter(Boolean))].sort(natural);res.json({tags})});
+app.get('/api/status',async(req,res)=>{try{await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.3.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
+app.get('/api/tags',(req,res)=>{
+  const all=[...load(PRODUCT_INDEX).items,...load(BATCH_INDEX).items],byTag=new Map();
+  for(const row of all){
+    for(const raw of row.tags||[]){
+      const tag=String(raw||'').trim();if(!tag)continue;const key=tag.toLowerCase();
+      if(!byTag.has(key))byTag.set(key,{tag,product_count:0,batch_count:0,total_count:0});
+      const entry=byTag.get(key);if(row.source==='batch')entry.batch_count+=1;else entry.product_count+=1;entry.total_count+=1;
+    }
+  }
+  const tag_options=[...byTag.values()].sort((a,b)=>natural(a.tag,b.tag));
+  res.json({tags:tag_options.map(x=>x.tag),tag_options});
+});
 app.get('/api/search',(req,res)=>{const tag=String(req.query.tag||'').trim().toLowerCase(),source=String(req.query.source||'all');if(!tag)return res.status(400).json({error:'Enter a tag to search.'});let rows=[...load(PRODUCT_INDEX).items,...load(BATCH_INDEX).items].filter(x=>(x.tags||[]).some(t=>String(t).toLowerCase()===tag));if(source!=='all')rows=rows.filter(x=>x.source===source);rows.sort((a,b)=>natural(a.locations?.[0]?.location,b.locations?.[0]?.location)||natural(a.sku,b.sku));res.json({results:rows,count:rows.length,building})});
 app.post('/api/refresh',(req,res)=>{if(!building)buildIndexes().catch(error=>console.error('Tag index refresh failed:',error.message));res.status(202).json({ok:true,building:true,message:building?'Refresh already running.':'Refresh started.'})});
 app.get('/api/product/:id/live',async(req,res)=>{try{const detail=await sc(`/api/products/${encodeURIComponent(req.params.id)}.json`),product=detail.product||detail||{};let inventory=[];try{inventory=(await sc(`/api/products/${encodeURIComponent(req.params.id)}/inventory_locations`)).inventory_locations||[]}catch{}res.json({product:{id:product.id,sku:product.sku||'',title:product.title||'',image:imageOf(product),tags:tagsOf(product),locations:inventory.map(x=>({location:x.location||'',quantity:Number(x.quantity_available||0)})),quantity_available:Number(product.quantity_available||0),status:String(product.marketplace_status||product.status||'')}})}catch(e){res.status(e.status||500).json({error:'Could not reload this product.',details:e.data||e.message})}});

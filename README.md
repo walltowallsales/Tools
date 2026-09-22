@@ -1,17 +1,17 @@
-# SellerChamp Tools Suite v1.10
+# SellerChamp Tools Suite v1.11
 
 One Render service and one persistent disk containing six independently routed modules:
 
 1. **Item - Move or Update Qty** (`/move/`) — Location Mover v2.37
 2. **Item - Inventory Verify** (`/inventory/`) — Inventory Checker v1.5
 3. **Item - Local Auction** (`/auction/`) — Auction Inventory v1.13
-4. **Item - Sort Tags by Location** (`/tags/`) — Tag Location Sorter v1.2
+4. **Item - Sort Tags by Location** (`/tags/`) — Tag Location Sorter v1.3
 5. **Shipping - Pick List** (`/shipping/`) — Pick Batch v27
 6. **Orders - Returns** (`/returns/`) — Returns v2.48
 
 The original module source is kept in separate folders under `modules/`. The gateway gives each module its own path and process, so module-specific changes remain isolated. Shared environment settings are normalized by the gateway. One suite-level PIN login covers the dashboard and all six modules for 30 days.
 
-Version 1.10 makes the Tag module the sole shared-index owner inside the combined suite. SellerChamp requests are paced and serialized, and HTTP 429 rate limits are retried automatically with increasing delays. The screen now shows active progress, rate-limit waits, and refresh failures instead of appearing idle.
+Version 1.11 replaces typed tag searching with an indexed tag dropdown. Each option shows its Product and Batch match counts, and selecting an option displays the matching items immediately.
 
 ## Deploy on Render
 
