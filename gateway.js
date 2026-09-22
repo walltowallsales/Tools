@@ -15,7 +15,7 @@ const modules = [
   { slug: 'move', title: 'Item - Move or Update Qty', folder: 'location', port: 3101, version: 'v2.37' },
   { slug: 'inventory', title: 'Item - Inventory Verify', folder: 'inventory', port: 3102, version: 'v1.5' },
   { slug: 'auction', title: 'Item - Local Auction', folder: 'auction', port: 3103, version: 'v1.13' },
-  { slug: 'tags', title: 'Item - Sort Tags by Location', folder: 'tag-sort', port: 3106, version: 'v1.4' },
+  { slug: 'tags', title: 'Item - Sort Tags by Location', folder: 'tag-sort', port: 3106, version: 'v1.5' },
   { slug: 'shipping', title: 'Shipping - Pick List', folder: 'pick', port: 3104, version: 'v28', data: 'pick' },
   { slug: 'returns', title: 'Orders - Returns', folder: 'returns', port: 3105, version: 'v2.48', data: 'returns' }
 ];
@@ -88,7 +88,7 @@ app.post('/login', express.urlencoded({ extended: false }), (req, res) => {
   }
   res.status(401).type('html').send(loginPage('Incorrect PIN.'));
 });
-app.get('/health', (req, res) => res.json({ ok: true, suite: '1.13.0', modules: modules.map(m => m.slug) }));
+app.get('/health', (req, res) => res.json({ ok: true, suite: '1.14.0', modules: modules.map(m => m.slug) }));
 app.use((req, res, next) => {
   if (authorized(req)) return next();
   if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) return res.status(401).json({ error: 'PIN required' });
@@ -125,7 +125,7 @@ app.use(['/api', '/uploads', '/app.js', '/styles.css'], (req, res, next) => {
 app.get('/', (req, res) => {
   const cards = modules.map(m => `<a class="card" href="/${m.slug}/"><span>${m.title}</span><small>${m.version}</small></a>`).join('');
   res.type('html').send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#10233f"><title>SellerChamp Tools</title><style>
-  *{box-sizing:border-box}body{margin:0;background:#f3f6fa;color:#12233b;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}header{background:#10233f;color:#fff;padding:max(26px,env(safe-area-inset-top)) 20px 24px}header div{max-width:760px;margin:auto}h1{margin:0;font-size:clamp(30px,8vw,44px)}p{margin:7px 0 0;opacity:.78}.shell{max-width:760px;margin:0 auto;padding:20px}.grid{display:grid;gap:14px}.card{display:flex;align-items:center;justify-content:space-between;min-height:84px;padding:18px 20px;border:1px solid #d7e0ec;border-radius:16px;background:#fff;color:#12233b;text-decoration:none;box-shadow:0 3px 12px #19395d12;font-size:19px;font-weight:800}.card:active{transform:scale(.99);background:#edf5ff}.card small{color:#60738a;font-size:12px;font-weight:700}.status{margin-top:20px;text-align:center;color:#617086;font-size:13px}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#22a35a;margin-right:6px}</style></head><body><header><div><h1>SellerChamp Tools</h1><p>Stuff2Sell warehouse suite · Suite v1.13</p></div></header><main class="shell"><div class="grid">${cards}</div><div class="status"><span class="dot"></span>One deployment · six isolated modules</div></main></body></html>`);
+  *{box-sizing:border-box}body{margin:0;background:#f3f6fa;color:#12233b;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}header{background:#10233f;color:#fff;padding:max(26px,env(safe-area-inset-top)) 20px 24px}header div{max-width:760px;margin:auto}h1{margin:0;font-size:clamp(30px,8vw,44px)}p{margin:7px 0 0;opacity:.78}.shell{max-width:760px;margin:0 auto;padding:20px}.grid{display:grid;gap:14px}.card{display:flex;align-items:center;justify-content:space-between;min-height:84px;padding:18px 20px;border:1px solid #d7e0ec;border-radius:16px;background:#fff;color:#12233b;text-decoration:none;box-shadow:0 3px 12px #19395d12;font-size:19px;font-weight:800}.card:active{transform:scale(.99);background:#edf5ff}.card small{color:#60738a;font-size:12px;font-weight:700}.status{margin-top:20px;text-align:center;color:#617086;font-size:13px}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#22a35a;margin-right:6px}</style></head><body><header><div><h1>SellerChamp Tools</h1><p>Stuff2Sell warehouse suite · Suite v1.14</p></div></header><main class="shell"><div class="grid">${cards}</div><div class="status"><span class="dot"></span>One deployment · six isolated modules</div></main></body></html>`);
 });
 
 const server = app.listen(PORT, '0.0.0.0', () => console.log(`[suite] gateway listening on ${PORT}`));

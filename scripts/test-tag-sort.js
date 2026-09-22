@@ -5,10 +5,14 @@ const freePort=()=>new Promise((resolve,reject)=>{const server=net.createServer(
 async function main(){
  const dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'sellerchamp-tags-'));const source=express();
  const products=[{id:'p1',sku:'TAG-2',title:'Second Shelf',tags_array:['Reserved Quantity','auction'],inventory_locations:[{location:'C10',quantity_available:2}],quantity_available:2},{id:'p2',sku:'TAG-1',title:'First Shelf',tags_array:['Reserved Quantity','Blue'],inventory_locations:[{location:'C2',quantity_available:1}],quantity_available:1},...Array.from({length:98},(_,i)=>({id:`f${i}`,sku:`FILLER-${i}`,title:`Filler ${i}`,tags_array:[],inventory_locations:[{location:`Z${i}`,quantity_available:1}],quantity_available:1}))];
+ products.forEach((p,i)=>{p.marketplace_status='active';p.inventory_locations=p.inventory_locations.map((x,j)=>({...x,id:`${p.id}-loc-${j}`,priority:j+1,delete_if_empty:true}))});
+ source.use(express.json());
  source.get('/api/marketplace_accounts',(q,r)=>r.json({marketplace_accounts:[]}));
  let productRequests=0;source.get('/api/products',async(q,r)=>{productRequests+=1;if(productRequests===1)return r.status(429).json({error:'rate limited'});if(Number(q.query.page||1)===2)await new Promise(resolve=>setTimeout(resolve,500));r.json({products:Number(q.query.page||1)===1?products:[]})});
  source.get('/api/products/:id.json',(q,r)=>r.json({product:products.find(x=>x.id===q.params.id)}));
  source.get('/api/products/:id/inventory_locations',(q,r)=>r.json({inventory_locations:products.find(x=>x.id===q.params.id)?.inventory_locations||[]}));
+ source.put('/api/products/:id/inventory_locations/:locationId',(q,r)=>{const product=products.find(x=>x.id===q.params.id),location=product?.inventory_locations.find(x=>x.id===q.params.locationId);if(!location)return r.status(404).json({error:'missing location',params:q.params,known:product?.inventory_locations.map(x=>x.id)||[]});Object.assign(location,q.body.inventory_location||{});product.quantity_available=product.inventory_locations.reduce((sum,x)=>sum+Number(x.quantity_available||0),0);r.json({inventory_location:location})});
+ source.delete('/api/products/:id',(q,r)=>{const product=products.find(x=>x.id===q.params.id);if(!product)return r.status(404).json({error:'missing product'});product.marketplace_status='inactive';r.json({ok:true})});
  source.get('/api/manifests',(q,r)=>r.json({manifests:Number(q.query.page||1)===1?[{id:'m1',name:'Draft',status:'open'}]:[]}));
  source.get('/api/manifests/:id/product_listings',(q,r)=>r.json({product_listings:Number(q.query.page||1)===1?[{id:'b1',sku:'BATCH-1',title:'Batch Item',tags_array:['Reserved Quantity'],location:'B4',quantity:3}]:[]}));
  const sourceServer=await listen(source),port=await freePort(),child=spawn(process.execPath,['server.js'],{cwd:path.join(__dirname,'..','modules','tag-sort'),env:{...process.env,PORT:String(port),DATA_DIR:dataDir,SC_REQUEST_GAP_MS:'1',SC_RETRY_BASE_MS:'5',SELLERCHAMP_TOKEN:'test',SELLERCHAMP_BASE_URL:`http://127.0.0.1:${sourceServer.address().port}`},stdio:['ignore','pipe','pipe']});
@@ -19,7 +23,10 @@ async function main(){
   response=await fetch(`${base}/api/search?tag=Reserved%20Quantity&source=all`);body=await response.json();assert.equal(body.count,3);assert.deepEqual(body.results.map(x=>x.locations[0].location),['B4','C2','C10']);
   response=await fetch(`${base}/api/search?tag=auction&source=all`);body=await response.json();assert.equal(body.count,1);assert.equal(body.results[0].sku,'TAG-2');
   response=await fetch(`${base}/api/product/p2/live`);body=await response.json();assert.equal(body.product.locations[0].location,'C2');assert.equal(body.product.quantity_available,1);
-  console.log('Tag sorter test passed: live in-progress tags, Product and Batch tags, natural location order, and live Product reload.');
+  response=await fetch(`${base}/api/product/p2/quantity`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location_id:'p2-loc-0',quantity:4})});body=await response.json();assert.equal(response.status,200,`${body.error||''} ${JSON.stringify(body.details||'')}`.trim());assert.equal(body.verified,true);assert.equal(body.product.locations[0].quantity,4);
+  response=await fetch(`${base}/api/product/p2/location`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location_id:'p2-loc-0',old_location:'C2',new_location:'D7'})});body=await response.json();assert.equal(response.status,200,body.error);assert.equal(body.verified,true);assert.equal(body.product.locations[0].location,'D7');
+  response=await fetch(`${base}/api/product/p2/end-listing`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});body=await response.json();assert.equal(response.status,200,body.error);assert.equal(body.verified,true);assert.equal(body.product.status,'inactive');
+  console.log('Tag sorter test passed: live indexing, tag search, verified quantity/location updates, and verified listing deactivation.');
  }finally{child.kill('SIGTERM');await new Promise(r=>sourceServer.close(r));fs.rmSync(dataDir,{recursive:true,force:true})}
 }
 main().catch(error=>{console.error(error);process.exitCode=1});

@@ -1,4 +1,4 @@
-# Item - Sort Tags by Location v1.4
+# Item - Sort Tags by Location v1.5
 
 Searches any exact SellerChamp tag across Products and Batch listings, then sorts matching items naturally by warehouse location. It shares the suite's persistent Product index with Location Mover and maintains a Batch-listing index alongside it.
 
@@ -16,3 +16,5 @@ Version 1.2 prevents simultaneous Product-index scans, spaces SellerChamp reques
 Version 1.3 replaces free-text entry with a dropdown of every indexed tag. Each option reports its Product and Batch counts and displays results immediately when selected.
 
 Version 1.4 exposes tags and search results while the Product index is still building, adds live scanned/tagged/unique-tag counters, and avoids adding status polling calls to the SellerChamp refresh queue.
+
+Version 1.5 adds per-location quantity and location controls to Product results. Every update is reloaded and verified against SellerChamp before success is reported. End Listing requires confirmation and polls SellerChamp until an inactive/ended status is verified.
