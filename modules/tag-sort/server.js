@@ -18,7 +18,15 @@ async function sc(endpoint){
   const text=await response.text();let data={};try{data=text?JSON.parse(text):{}}catch{data={raw:text}}
   if(!response.ok){const error=new Error(`SellerChamp returned ${response.status}`);error.status=response.status;error.data=data;throw error}return data;
 }
-function tagsOf(row){const raw=row?.tags_array??row?.tags??row?.tag_list??row?.product_tags??[];return (Array.isArray(raw)?raw:String(raw).split(',')).map(x=>typeof x==='string'?x.trim():String(x?.name||x?.tag||'').trim()).filter(Boolean)}
+function tagsOf(row){
+  const candidates=[row,row?.product,row?.master_product,row?.product_listing,row?.catalogue_product].filter(Boolean);
+  const found=[];
+  for(const candidate of candidates){
+    const raw=candidate.tags_array??candidate.tags??candidate.tag_list??candidate.product_tags??candidate.tag_names??candidate.tags_string??[];
+    for(const value of (Array.isArray(raw)?raw:String(raw).split(','))){const tag=typeof value==='string'?value.trim():String(value?.name||value?.tag||value?.label||'').trim();if(tag&&!found.some(x=>x.toLowerCase()===tag.toLowerCase()))found.push(tag)}
+  }
+  return found;
+}
 function imageOf(p){return p?.primary_image||p?.primary_image_url||p?.image_url||p?.image||p?.product_images?.[0]?.large_image_url||p?.product_images?.[0]?.image_url||''}
 function locationsOf(p){const rows=(Array.isArray(p?.inventory_locations)?p.inventory_locations:[]).map(x=>({location:String(x.location||''),quantity:Number(x.quantity_available||0)}));if(!rows.length&&(p?.item_location||p?.bin_location||p?.warehouse_location))rows.push({location:String(p.item_location||p.bin_location||p.warehouse_location),quantity:Number(p.quantity_available||0)});return rows}
 function load(file){try{const data=JSON.parse(fs.readFileSync(file,'utf8'));return {items:Array.isArray(data.items)?data.items:[],updated_at:data.updated_at||null}}catch{return {items:[],updated_at:null}}}
@@ -60,7 +68,7 @@ async function buildIndexes(){
   }catch(error){buildError=error.message||'Refresh failed.';progress.phase='error';throw error}finally{building=false}
 }
 
-app.get('/api/status',async(req,res)=>{try{await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.0.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
+app.get('/api/status',async(req,res)=>{try{await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.1.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
 app.get('/api/tags',(req,res)=>{const all=[...load(PRODUCT_INDEX).items,...load(BATCH_INDEX).items];const tags=[...new Set(all.flatMap(x=>x.tags||[]).map(x=>String(x).trim()).filter(Boolean))].sort(natural);res.json({tags})});
 app.get('/api/search',(req,res)=>{const tag=String(req.query.tag||'').trim().toLowerCase(),source=String(req.query.source||'all');if(!tag)return res.status(400).json({error:'Enter a tag to search.'});let rows=[...load(PRODUCT_INDEX).items,...load(BATCH_INDEX).items].filter(x=>(x.tags||[]).some(t=>String(t).toLowerCase()===tag));if(source!=='all')rows=rows.filter(x=>x.source===source);rows.sort((a,b)=>natural(a.locations?.[0]?.location,b.locations?.[0]?.location)||natural(a.sku,b.sku));res.json({results:rows,count:rows.length,building})});
 app.post('/api/refresh',(req,res)=>{if(!building)buildIndexes().catch(error=>console.error('Tag index refresh failed:',error.message));res.status(202).json({ok:true,building:true})});

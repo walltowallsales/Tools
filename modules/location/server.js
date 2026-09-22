@@ -118,7 +118,10 @@ async function rebuildSearchIndex() {
     const previousById = new Map(searchIndex.map(row => [String(row.id || ''), row]));
     const pageSize = 100;
     for (let page = 1; page <= 5000; page += 1) {
-      const data = await scFetch(`/api/products.json?page=${page}&page_size=${pageSize}`);
+      // Use the same Products collection endpoint as the working Auction module.
+      // The .json variant can omit tags_array and must not overwrite the shared
+      // tag index with tagless records.
+      const data = await scFetch(`/api/products?page=${page}&page_size=${pageSize}`);
       const products = Array.isArray(data.products) ? data.products : [];
       if (!products.length) break;
       for (const product of products) {
@@ -539,7 +542,7 @@ app.get('/api/status', async (req, res) => {
     const data = await scFetch('/api/marketplace_accounts');
     res.json({
       ok: true,
-      version: '2.35.0',
+      version: '2.36.0',
       pinRequired: !!APP_PIN,
       accounts: (data.marketplace_accounts || []).map(a => ({ id: a.id, name: a.name, marketplace: a.marketplace })),
       search_index: {

@@ -36,7 +36,7 @@ async function waitFor(url) {
 async function main() {
   const dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'sellerchamp-move-index-'));
   const products = [
-    { id:'p1', sku:'ABC12345', upc:'012345678905', title:'Blue Industrial Widget', quantity_available:4, primary_image_url:'https://example.test/blue.jpg' },
+    { id:'p1', sku:'ABC12345', upc:'012345678905', title:'Blue Industrial Widget', tags_array:['auction'], quantity_available:4, primary_image_url:'https://example.test/blue.jpg' },
     { id:'p2', sku:'ZZZ90000', upc:'998877665544', title:'Red Control Module', quantity_available:2 },
     { id:'p3', sku:'PARENT100', upc:'', title:'Green Variant Assembly', quantity_available:1, variants:[{sku:'VARIANT777',upc:'777788889999'}] }
   ];
@@ -53,6 +53,10 @@ async function main() {
     }
     // Return the full page even for filters. This verifies that exact lookup
     // rejects SellerChamp's first unrelated row instead of selecting it.
+    res.json({products:page===1?products:[]});
+  });
+  source.get('/api/products', (req,res) => {
+    const page=Number(req.query.page||1);
     res.json({products:page===1?products:[]});
   });
   source.get('/api/products/:id.json', (req,res) => {
@@ -84,6 +88,8 @@ async function main() {
       await new Promise(resolve=>setTimeout(resolve,50));
     }
     assert.ok(body.search_index?.count>=3,'local search index was not built');
+    const savedIndex=JSON.parse(fs.readFileSync(path.join(dataDir,'move-product-search-index.json'),'utf8'));
+    assert.ok(savedIndex.items.find(row=>row.id==='p1')?.tags?.includes('auction'),'shared index must retain Product tags');
 
     response=await fetch(`${base}/api/lookup?code=ABC`);
     assert.equal(response.status,404,'partial input must not select an unrelated first product');

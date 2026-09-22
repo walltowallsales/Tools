@@ -1,17 +1,17 @@
-# SellerChamp Tools Suite v1.8
+# SellerChamp Tools Suite v1.9
 
 One Render service and one persistent disk containing six independently routed modules:
 
-1. **Item - Move or Update Qty** (`/move/`) — Location Mover v2.35
+1. **Item - Move or Update Qty** (`/move/`) — Location Mover v2.36
 2. **Item - Inventory Verify** (`/inventory/`) — Inventory Checker v1.5
 3. **Item - Local Auction** (`/auction/`) — Auction Inventory v1.13
-4. **Item - Sort Tags by Location** (`/tags/`) — Tag Location Sorter v1.0
+4. **Item - Sort Tags by Location** (`/tags/`) — Tag Location Sorter v1.1
 5. **Shipping - Pick List** (`/shipping/`) — Pick Batch v27
 6. **Orders - Returns** (`/returns/`) — Returns v2.48
 
 The original module source is kept in separate folders under `modules/`. The gateway gives each module its own path and process, so module-specific changes remain isolated. Shared environment settings are normalized by the gateway. One suite-level PIN login covers the dashboard and all six modules for 30 days.
 
-Version 1.8 adds **Item - Sort Tags by Location**. It searches any exact tag across Products and Batch listings, supports source filters, and sorts by location, SKU, title, or quantity. It shares the lightweight Product index used by Location Mover and stores a Batch index on the same persistent disk. Both indexes refresh every 24 hours or on demand. A Product can always be reloaded live before relying on its current tags, location, or quantity.
+Version 1.9 fixes the shared index so it uses the same tag-bearing Products endpoint as the working Auction module. Location Mover no longer replaces tag data with records from SellerChamp's tagless `.json` collection response. Batch tag extraction also recognizes nested and alternate tag fields.
 
 ## Deploy on Render
 

@@ -4,7 +4,7 @@ const listen=app=>new Promise(resolve=>{const server=app.listen(0,'127.0.0.1',()
 const freePort=()=>new Promise((resolve,reject)=>{const server=net.createServer();server.on('error',reject);server.listen(0,'127.0.0.1',()=>{const port=server.address().port;server.close(()=>resolve(port))})});
 async function main(){
  const dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'sellerchamp-tags-'));const source=express();
- const products=[{id:'p1',sku:'TAG-2',title:'Second Shelf',tags_array:['Reserved Quantity'],inventory_locations:[{location:'C10',quantity_available:2}],quantity_available:2},{id:'p2',sku:'TAG-1',title:'First Shelf',tags_array:['Reserved Quantity','Blue'],inventory_locations:[{location:'C2',quantity_available:1}],quantity_available:1}];
+ const products=[{id:'p1',sku:'TAG-2',title:'Second Shelf',tags_array:['Reserved Quantity','auction'],inventory_locations:[{location:'C10',quantity_available:2}],quantity_available:2},{id:'p2',sku:'TAG-1',title:'First Shelf',tags_array:['Reserved Quantity','Blue'],inventory_locations:[{location:'C2',quantity_available:1}],quantity_available:1}];
  source.get('/api/marketplace_accounts',(q,r)=>r.json({marketplace_accounts:[]}));
  source.get('/api/products',(q,r)=>r.json({products:Number(q.query.page||1)===1?products:[]}));
  source.get('/api/products/:id.json',(q,r)=>r.json({product:products.find(x=>x.id===q.params.id)}));
@@ -16,6 +16,7 @@ async function main(){
   for(let i=0;i<80;i++){try{const response=await fetch(`${base}/api/status`);status=await response.json();if(response.ok&&!status.building&&status.products===2&&status.batches===1)break}catch{}await new Promise(r=>setTimeout(r,50))}
   assert.equal(status.products,2);assert.equal(status.batches,1);
   let response=await fetch(`${base}/api/search?tag=Reserved%20Quantity&source=all`),body=await response.json();assert.equal(body.count,3);assert.deepEqual(body.results.map(x=>x.locations[0].location),['B4','C2','C10']);
+  response=await fetch(`${base}/api/search?tag=auction&source=all`);body=await response.json();assert.equal(body.count,1);assert.equal(body.results[0].sku,'TAG-2');
   response=await fetch(`${base}/api/product/p2/live`);body=await response.json();assert.equal(body.product.locations[0].location,'C2');assert.equal(body.product.quantity_available,1);
   console.log('Tag sorter test passed: Product and Batch tags, natural location order, and live Product reload.');
  }finally{child.kill('SIGTERM');await new Promise(r=>sourceServer.close(r));fs.rmSync(dataDir,{recursive:true,force:true})}
