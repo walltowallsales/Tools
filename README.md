@@ -1,16 +1,17 @@
-# SellerChamp Tools Suite v1.7
+# SellerChamp Tools Suite v1.8
 
-One Render service and one persistent disk containing five independently routed modules:
+One Render service and one persistent disk containing six independently routed modules:
 
-1. **Item - Move or Update Qty** (`/move/`) — Location Mover v2.32
+1. **Item - Move or Update Qty** (`/move/`) — Location Mover v2.35
 2. **Item - Inventory Verify** (`/inventory/`) — Inventory Checker v1.5
 3. **Item - Local Auction** (`/auction/`) — Auction Inventory v1.13
-4. **Shipping - Pick List** (`/shipping/`) — Pick Batch v27
-5. **Orders - Returns** (`/returns/`) — Returns v2.48
+4. **Item - Sort Tags by Location** (`/tags/`) — Tag Location Sorter v1.0
+5. **Shipping - Pick List** (`/shipping/`) — Pick Batch v27
+6. **Orders - Returns** (`/returns/`) — Returns v2.48
 
-The original module source is kept in separate folders under `modules/`. The gateway gives each module its own path and process, so module-specific changes remain isolated. Shared environment settings are normalized by the gateway. One suite-level PIN login covers the dashboard and all five modules for 30 days.
+The original module source is kept in separate folders under `modules/`. The gateway gives each module its own path and process, so module-specific changes remain isolated. Shared environment settings are normalized by the gateway. One suite-level PIN login covers the dashboard and all six modules for 30 days.
 
-Version 1.7 updates only **Item - Move or Update Qty**. It keeps a lightweight product search index on the persistent disk for fast partial SKU, UPC, and title searches. Selecting a result still reloads that exact product's current location and quantity directly from SellerChamp. The index refreshes every 24 hours and can also be refreshed manually. The other four modules are unchanged.
+Version 1.8 adds **Item - Sort Tags by Location**. It searches any exact tag across Products and Batch listings, supports source filters, and sorts by location, SKU, title, or quantity. It shares the lightweight Product index used by Location Mover and stores a Batch index on the same persistent disk. Both indexes refresh every 24 hours or on demand. A Product can always be reloaded live before relying on its current tags, location, or quantity.
 
 ## Deploy on Render
 
@@ -34,6 +35,8 @@ The one mounted disk is deliberately divided so the two stateful modules cannot 
 
 ```text
 /var/data/
+├── move-product-search-index.json
+├── tag-batch-search-index.json
 ├── pick/pick-batches.json
 └── returns/
     ├── returns.json
@@ -56,12 +59,13 @@ Open `http://localhost:10000`. Set values from `.env.example` in the shell or de
 
 ## Updating one module later
 
-Make changes only inside that module's folder and update its version label. The five module folders are:
+Make changes only inside that module's folder and update its version label. The six module folders are:
 
 ```text
 modules/location
 modules/inventory
 modules/auction
+modules/tag-sort
 modules/pick
 modules/returns
 ```

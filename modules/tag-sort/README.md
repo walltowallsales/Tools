@@ -1,0 +1,10 @@
+# Item - Sort Tags by Location v1.0
+
+Searches any exact SellerChamp tag across Products and Batch listings, then sorts matching items naturally by warehouse location. It shares the suite's persistent Product index with Location Mover and maintains a Batch-listing index alongside it.
+
+- Automatic refresh when the index is missing and every 24 hours afterward.
+- Manual **Refresh Index** button.
+- Filters for Products, Batches, or both.
+- Sorts by location, SKU, title, or quantity.
+- **Reload Live** fetches the selected Product's current tags, locations, and quantities directly from SellerChamp.
+- SellerChamp links use the filtered Products-list URL for Products and the relevant manifest URL for Batch listings.

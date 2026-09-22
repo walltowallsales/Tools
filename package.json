@@ -1,12 +1,13 @@
 {
   "name": "sellerchamp-tools-suite",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "private": true,
   "engines": { "node": ">=20" },
   "scripts": {
     "start": "node gateway.js",
     "check": "node scripts/check-suite.js",
-    "test:move-search": "node scripts/test-location-search.js"
+    "test:move-search": "node scripts/test-location-search.js",
+    "test:tag-sort": "node scripts/test-tag-sort.js"
   },
   "dependencies": {
     "express": "^4.21.2",

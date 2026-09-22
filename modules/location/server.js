@@ -19,6 +19,7 @@ let searchIndexUpdatedAt = null;
 let searchIndexBuilding = false;
 let searchIndexError = '';
 let searchIndexPromise = null;
+let searchIndexMtimeMs = 0;
 
 app.use(express.json({ limit: '200kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -63,12 +64,24 @@ async function scFetch(endpoint, options = {}) {
 function indexRowsFromProduct(p) {
   const variants = Array.isArray(p.variants) ? p.variants : [];
   const parentSku = String(p.sku || p.custom_catalogue_sku || p.catalogue_sku || '');
+  const rawTags = p.tags_array ?? p.tags ?? p.tag_list ?? p.product_tags ?? [];
+  const tags = (Array.isArray(rawTags) ? rawTags : String(rawTags).split(','))
+    .map(tag => typeof tag === 'string' ? tag.trim() : String(tag?.name || tag?.tag || '').trim()).filter(Boolean);
+  const locations = (Array.isArray(p.inventory_locations) ? p.inventory_locations : [])
+    .map(location => ({ location:String(location.location || ''), quantity:Number(location.quantity_available || 0) }));
+  if (!locations.length && (p.item_location || p.bin_location || p.warehouse_location)) {
+    locations.push({ location:String(p.item_location || p.bin_location || p.warehouse_location), quantity:Number(p.quantity_available || 0) });
+  }
   const base = {
     id: p.id || '',
     title: String(p.title || p.product_title || ''),
     image: p.primary_image || p.primary_image_url || p.image_url || p.image ||
       p.product_images?.[0]?.large_image_url || p.product_images?.[0]?.image_url || '',
-    quantity_available: Number(p.quantity_available || 0)
+    quantity_available: Number(p.quantity_available || 0),
+    tags,
+    locations,
+    status: String(p.marketplace_status || p.status || ''),
+    source: 'product'
   };
   const rows = [{
     ...base,
@@ -86,9 +99,12 @@ function indexRowsFromProduct(p) {
 
 function loadSearchIndex() {
   try {
+    const stat = fs.statSync(SEARCH_INDEX_FILE);
+    if (stat.mtimeMs === searchIndexMtimeMs && searchIndex.length) return;
     const saved = JSON.parse(fs.readFileSync(SEARCH_INDEX_FILE, 'utf8'));
     if (Array.isArray(saved.items)) searchIndex = saved.items;
     searchIndexUpdatedAt = saved.updated_at || null;
+    searchIndexMtimeMs = stat.mtimeMs;
   } catch {}
 }
 
@@ -99,6 +115,7 @@ async function rebuildSearchIndex() {
   searchIndexPromise = (async () => {
     const next = [];
     const seen = new Set();
+    const previousById = new Map(searchIndex.map(row => [String(row.id || ''), row]));
     const pageSize = 100;
     for (let page = 1; page <= 5000; page += 1) {
       const data = await scFetch(`/api/products.json?page=${page}&page_size=${pageSize}`);
@@ -106,6 +123,11 @@ async function rebuildSearchIndex() {
       if (!products.length) break;
       for (const product of products) {
         for (const row of indexRowsFromProduct(product)) {
+          const previous = previousById.get(String(row.id || ''));
+          if (previous) {
+            if (!row.tags?.length && previous.tags?.length) row.tags = previous.tags;
+            if (!row.locations?.length && previous.locations?.length) row.locations = previous.locations;
+          }
           const key = `${row.id}|${row.sku.toLowerCase()}|${row.upc.toLowerCase()}`;
           if (!seen.has(key)) { seen.add(key); next.push(row); }
         }
@@ -119,6 +141,7 @@ async function rebuildSearchIndex() {
     fs.renameSync(temporary, SEARCH_INDEX_FILE);
     searchIndex = next;
     searchIndexUpdatedAt = updatedAt;
+    searchIndexMtimeMs = fs.statSync(SEARCH_INDEX_FILE).mtimeMs;
     return { count: next.length, updated_at: updatedAt };
   })().catch(error => {
     searchIndexError = error.message || 'Search index refresh failed.';
@@ -541,6 +564,7 @@ app.get('/api/item-search', async (req,res)=>{
   const q=String(req.query.q||'').trim();
   if(q.length<2)return res.status(400).json({error:'Enter at least 2 characters from the SKU, UPC, or title.'});
   try{
+    loadSearchIndex();
     const localResults=searchLocalIndex(q);
     if(localResults.length)return res.json({results:localResults,source:'local-index',updated_at:searchIndexUpdatedAt});
 
