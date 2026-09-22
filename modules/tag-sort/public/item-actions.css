@@ -22,6 +22,8 @@
 .inventory-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 .inventory-buttons button { min-height: 42px; padding: 8px; font-size: 14px; }
 .location-action { background: #315f91; }
+.reserve-action { background: #28734f; margin-top: 9px; }
+.remove-tag-action { background: #a75a08; margin-top: 9px; }
 .end-action { background: #b42318; margin-top: 9px; }
 .batch-note {
   background: #fff6d8;
