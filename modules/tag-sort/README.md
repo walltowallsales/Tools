@@ -1,4 +1,4 @@
-# Item - Sort Tags by Location v1.6
+# Item - Sort Tags by Location v1.7
 
 Searches any exact SellerChamp tag across Products and Batch listings, then sorts matching items naturally by warehouse location. It shares the suite's persistent Product index with Location Mover and maintains a Batch-listing index alongside it.
 

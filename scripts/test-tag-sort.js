@@ -6,9 +6,10 @@ async function main(){
  const dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'sellerchamp-tags-'));const source=express();
  const products=[{id:'p1',sku:'TAG-2',title:'Second Shelf',tags_array:['Reserved Quantity','auction'],inventory_locations:[{location:'C10',quantity_available:2}],quantity_available:2},{id:'p2',sku:'TAG-1',title:'First Shelf',tags_array:['Reserved Quantity','Blue'],inventory_locations:[{location:'C2',quantity_available:1}],quantity_available:1},...Array.from({length:98},(_,i)=>({id:`f${i}`,sku:`FILLER-${i}`,title:`Filler ${i}`,tags_array:[],inventory_locations:[{location:`Z${i}`,quantity_available:1}],quantity_available:1}))];
  products.forEach((p,i)=>{p.marketplace_status='active';p.reserve_quantity=p.id==='p2'?3:0;p.reserve_quantity_location=p.id==='p2'?'C2':'';p.inventory_locations=p.inventory_locations.map((x,j)=>({...x,id:`${p.id}-loc-${j}`,priority:j+1,delete_if_empty:true}))});
+ const staleProductList=products.map(product=>{const copy={...product,tags_array:[...(product.tags_array||[])]};delete copy.reserve_quantity;delete copy.reserve_quantity_location;return copy});
  source.use(express.json());
  source.get('/api/marketplace_accounts',(q,r)=>r.json({marketplace_accounts:[]}));
- let productRequests=0;source.get('/api/products',async(q,r)=>{productRequests+=1;if(productRequests===1)return r.status(429).json({error:'rate limited'});if(Number(q.query.page||1)===2)await new Promise(resolve=>setTimeout(resolve,500));const listed=products.map(product=>{const copy={...product};delete copy.reserve_quantity;delete copy.reserve_quantity_location;return copy});r.json({products:Number(q.query.page||1)===1?listed:[]})});
+ let productRequests=0;source.get('/api/products',async(q,r)=>{productRequests+=1;if(productRequests===1)return r.status(429).json({error:'rate limited'});if(Number(q.query.page||1)===2)await new Promise(resolve=>setTimeout(resolve,500));r.json({products:Number(q.query.page||1)===1?staleProductList:[]})});
  source.get('/api/products/:id.json',(q,r)=>r.json({product:products.find(x=>x.id===q.params.id)}));
  source.get('/api/products/:id/inventory_locations',(q,r)=>r.json({inventory_locations:products.find(x=>x.id===q.params.id)?.inventory_locations||[]}));
  source.put('/api/products/:id',(q,r)=>{const product=products.find(x=>x.id===q.params.id);if(!product)return r.status(404).json({error:'missing product'});const update=q.body.product||{};if(Array.isArray(update.tags_array))product.tags_array=update.tags_array;if(update.reserve_quantity!==undefined)product.reserve_quantity=Number(update.reserve_quantity);if(update.reserve_quantity_location!==undefined)product.reserve_quantity_location=String(update.reserve_quantity_location);r.json({product})});
@@ -30,8 +31,11 @@ async function main(){
   response=await fetch(`${base}/api/product/p2/reserve`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({quantity:2,location:'D7'})});body=await response.json();assert.equal(response.status,200,body.error);assert.equal(body.verified,true);assert.equal(body.product.reserve_quantity,2);
   response=await fetch(`${base}/api/product/p1/remove-tag`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tag:'auction'})});body=await response.json();assert.equal(response.status,200,body.error);assert.equal(body.verified,true);assert.ok(!body.product.tags.includes('auction'));assert.ok(body.product.tags.includes('Reserved Quantity'));
   response=await fetch(`${base}/api/search?tag=auction&source=product`);body=await response.json();assert.equal(body.count,0);
+  response=await fetch(`${base}/api/refresh`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});assert.equal(response.status,202);
+  for(let i=0;i<100;i++){await new Promise(r=>setTimeout(r,25));response=await fetch(`${base}/api/status`);body=await response.json();if(!body.building)break}
+  response=await fetch(`${base}/api/search?tag=auction&source=product`);body=await response.json();assert.equal(body.count,0,'removed tag returned after a stale index rebuild');
   response=await fetch(`${base}/api/product/p2/end-listing`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});body=await response.json();assert.equal(response.status,200,body.error);assert.equal(body.verified,true);assert.equal(body.product.status,'inactive');
-  console.log('Tag sorter test passed: live reserve retrieval, verified reserve/quantity/location updates, tag removal, and listing deactivation.');
+  console.log('Tag sorter test passed: live reserve retrieval, verified updates, and persistent tag removal across stale index rebuilds.');
  }finally{child.kill('SIGTERM');await new Promise(r=>sourceServer.close(r));fs.rmSync(dataDir,{recursive:true,force:true})}
 }
 main().catch(error=>{console.error(error);process.exitCode=1});

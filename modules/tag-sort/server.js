@@ -9,6 +9,8 @@ const SC_BASE=(process.env.SELLERCHAMP_BASE_URL||'https://app.sellerchamp.com').
 const DATA_DIR=path.resolve(process.env.DATA_DIR||path.join(__dirname,'data'));
 const PRODUCT_INDEX=path.join(DATA_DIR,'move-product-search-index.json');
 const BATCH_INDEX=path.join(DATA_DIR,'tag-batch-search-index.json');
+const REMOVED_TAGS=path.join(DATA_DIR,'tag-removal-overrides.json');
+const TAG_OVERRIDE_DAYS=Number(process.env.TAG_OVERRIDE_DAYS||30);
 fs.mkdirSync(DATA_DIR,{recursive:true});
 app.use(express.json({limit:'100kb'}));
 app.use(express.static(path.join(__dirname,'public')));
@@ -40,6 +42,9 @@ function imageOf(p){return p?.primary_image||p?.primary_image_url||p?.image_url|
 function locationsOf(p){const rows=(Array.isArray(p?.inventory_locations)?p.inventory_locations:[]).map(x=>({location:String(x.location||''),quantity:Number(x.quantity_available||0)}));if(!rows.length&&(p?.item_location||p?.bin_location||p?.warehouse_location))rows.push({location:String(p.item_location||p.bin_location||p.warehouse_location),quantity:Number(p.quantity_available||0)});return rows}
 function load(file){try{const data=JSON.parse(fs.readFileSync(file,'utf8'));return {items:Array.isArray(data.items)?data.items:[],updated_at:data.updated_at||null}}catch{return {items:[],updated_at:null}}}
 function write(file,data,suffix){const temporary=`${file}.${suffix}.tmp`;fs.writeFileSync(temporary,JSON.stringify(data));fs.renameSync(temporary,file)}
+function loadTagOverrides(){try{const data=JSON.parse(fs.readFileSync(REMOVED_TAGS,'utf8')),cutoff=Date.now()-TAG_OVERRIDE_DAYS*86400000;const removals={};for(const [id,entries] of Object.entries(data.removals||{})){const active=(Array.isArray(entries)?entries:[]).filter(x=>Date.parse(x.removed_at||0)>=cutoff&&x.tag);if(active.length)removals[id]=active}return removals}catch{return {}}}
+function recordTagRemoval(id,tag){const removals=loadTagOverrides(),key=String(id),lower=String(tag).toLowerCase(),entries=(removals[key]||[]).filter(x=>String(x.tag).toLowerCase()!==lower);entries.push({tag:String(tag),removed_at:new Date().toISOString()});removals[key]=entries;write(REMOVED_TAGS,{removals},'removed-tag')}
+function applyTagOverrides(row,removals=loadTagOverrides()){if(row?.source==='batch')return row;const blocked=removals[String(row?.id)]||[];if(!blocked.length)return row;const blockedNames=new Set(blocked.map(x=>String(x.tag).toLowerCase()));return {...row,tags:(row.tags||[]).filter(tag=>!blockedNames.has(String(tag).toLowerCase()))}}
 function natural(a,b){return String(a||'ZZZZ').localeCompare(String(b||'ZZZZ'),undefined,{numeric:true,sensitivity:'base'})}
 function productStatus(product){return String(product?.marketplace_status||product?.status||'unknown').toLowerCase()}
 let building=false,buildError='',activeProducts=[],activeBatches=[];
@@ -49,7 +54,7 @@ function currentItems(){
   const savedProducts=load(PRODUCT_INDEX).items,savedBatches=load(BATCH_INDEX).items;
   const products=building&&activeProducts.length?activeProducts:savedProducts;
   const batches=building&&progress.phase==='batches'?activeBatches:savedBatches;
-  return [...products,...batches];
+  const removals=loadTagOverrides();return [...products.map(row=>applyTagOverrides(row,removals)),...batches];
 }
 
 async function liveProduct(id){
@@ -60,7 +65,7 @@ async function liveProduct(id){
   return {id:product.id||id,sku:product.sku||'',title:product.title||'',image:imageOf(product),tags:tagsOf(product),locations,quantity_available:locations.length?locations.reduce((sum,x)=>sum+x.quantity,0):Number(product.quantity_available||0),reserve_quantity:Number(product.reserve_quantity||0),reserve_quantity_location:String(product.reserve_quantity_location||''),reserve_live_loaded:true,status:productStatus(product),source:'product'};
 }
 function saveLiveProduct(live){
-  const index=load(PRODUCT_INDEX),id=String(live.id||'');let changed=false;
+  live=applyTagOverrides(live);const index=load(PRODUCT_INDEX),id=String(live.id||'');let changed=false;
   index.items=index.items.map(row=>{if(String(row.id)!==id)return row;changed=true;return {...row,...live,sku:row.sku||live.sku,upc:row.upc||'',source:'product'}});
   if(changed)write(PRODUCT_INDEX,{updated_at:new Date().toISOString(),items:index.items},'live');
   for(let i=0;i<activeProducts.length;i++)if(String(activeProducts[i].id)===id)activeProducts[i]={...activeProducts[i],...live,sku:activeProducts[i].sku||live.sku,source:'product'};
@@ -78,7 +83,7 @@ async function buildIndexes(){
         const productTags=tagsOf(p);let productLocations=locationsOf(p);
         if(productTags.length){progress.tagged_products+=1;for(const tag of productTags)uniqueTags.add(tag.toLowerCase())}
         if(productTags.length&&!productLocations.length&&p.id){try{const inventory=await sc(`/api/products/${encodeURIComponent(p.id)}/inventory_locations`);productLocations=(inventory.inventory_locations||[]).map(x=>({location:String(x.location||''),quantity:Number(x.quantity_available||0)}))}catch{}}
-        const base={id:p.id||'',sku:String(p.sku||p.custom_catalogue_sku||p.catalogue_sku||''),upc:String(p.upc||p.barcode||''),title:String(p.title||p.product_title||''),image:imageOf(p),quantity_available:Number(p.quantity_available||0),reserve_quantity:Number(p.reserve_quantity||0),reserve_quantity_location:String(p.reserve_quantity_location||''),reserve_live_loaded:false,tags:productTags,locations:productLocations,status:String(p.marketplace_status||p.status||''),source:'product'};
+        const base=applyTagOverrides({id:p.id||'',sku:String(p.sku||p.custom_catalogue_sku||p.catalogue_sku||''),upc:String(p.upc||p.barcode||''),title:String(p.title||p.product_title||''),image:imageOf(p),quantity_available:Number(p.quantity_available||0),reserve_quantity:Number(p.reserve_quantity||0),reserve_quantity_location:String(p.reserve_quantity_location||''),reserve_live_loaded:false,tags:productTags,locations:productLocations,status:String(p.marketplace_status||p.status||''),source:'product'});
         for(const row of [base,...variants.map(v=>({...base,sku:String(v.sku||base.sku),upc:String(v.upc||v.barcode||base.upc)}))]){const key=`${row.id}|${row.sku}|${row.upc}`;if(!seen.has(key)){seen.add(key);products.push(row)}}
       }
       progress.products+=rows.length;progress.indexed_products=products.length;progress.unique_tags=uniqueTags.size;if(!rows.length||rows.length<100)break;
@@ -102,7 +107,7 @@ async function buildIndexes(){
   }catch(error){buildError=error.message||'Refresh failed.';progress.phase='error';throw error}finally{building=false}
 }
 
-app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.6.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
+app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.7.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
 app.get('/api/tags',(req,res)=>{
   const all=currentItems(),byTag=new Map();
   for(const row of all){
@@ -161,7 +166,7 @@ app.post('/api/product/:id/remove-tag',async(req,res)=>{try{
   await sc(`/api/products/${encodeURIComponent(req.params.id)}`,{method:'PUT',body:JSON.stringify({product:{tags_array:remaining}})});
   const product=await liveProduct(req.params.id);
   if(product.tags.some(x=>x.toLowerCase()===tag.toLowerCase()))return res.status(409).json({error:`SellerChamp did not confirm removal of the “${tag}” tag. No verified success was reported.`});
-  saveLiveProduct(product);res.json({ok:true,verified:true,message:`Verified: removed the “${tag}” tag.`,product});
+  recordTagRemoval(req.params.id,tag);product.tags=product.tags.filter(x=>x.toLowerCase()!==tag.toLowerCase());saveLiveProduct(product);res.json({ok:true,verified:true,message:`Verified: removed the “${tag}” tag.`,product});
 }catch(e){res.status(e.status||500).json({error:'SellerChamp tag removal failed.',details:e.data||e.message})}});
 app.post('/api/product/:id/end-listing',async(req,res)=>{try{
   await sc(`/api/products/${encodeURIComponent(req.params.id)}?delete_product=false&end_listing_on_marketplace=true&delete_listing_on_marketplace=false&delete_linked_products=false`,{method:'DELETE'});
