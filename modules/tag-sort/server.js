@@ -10,7 +10,7 @@ const DATA_DIR=path.resolve(process.env.DATA_DIR||path.join(__dirname,'data'));
 const PRODUCT_INDEX=path.join(DATA_DIR,'move-product-search-index.json');
 const BATCH_INDEX=path.join(DATA_DIR,'tag-batch-search-index.json');
 const REMOVED_TAGS=path.join(DATA_DIR,'tag-removal-overrides.json');
-const TAG_OVERRIDE_DAYS=Number(process.env.TAG_OVERRIDE_DAYS||30);
+const TAG_OVERRIDE_DAYS=Number(process.env.TAG_OVERRIDE_DAYS||3);
 fs.mkdirSync(DATA_DIR,{recursive:true});
 app.use(express.json({limit:'100kb'}));
 app.use(express.static(path.join(__dirname,'public')));
@@ -107,7 +107,7 @@ async function buildIndexes(){
   }catch(error){buildError=error.message||'Refresh failed.';progress.phase='error';throw error}finally{building=false}
 }
 
-app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.7.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
+app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.8.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
 app.get('/api/tags',(req,res)=>{
   const all=currentItems(),byTag=new Map();
   for(const row of all){
@@ -164,9 +164,10 @@ app.post('/api/product/:id/remove-tag',async(req,res)=>{try{
   if(!beforeTags.some(x=>x.toLowerCase()===tag.toLowerCase()))return res.status(404).json({error:`This Product no longer has the “${tag}” tag.`});
   const remaining=beforeTags.filter(x=>x.toLowerCase()!==tag.toLowerCase());
   await sc(`/api/products/${encodeURIComponent(req.params.id)}`,{method:'PUT',body:JSON.stringify({product:{tags_array:remaining}})});
-  const product=await liveProduct(req.params.id);
-  if(product.tags.some(x=>x.toLowerCase()===tag.toLowerCase()))return res.status(409).json({error:`SellerChamp did not confirm removal of the “${tag}” tag. No verified success was reported.`});
-  recordTagRemoval(req.params.id,tag);product.tags=product.tags.filter(x=>x.toLowerCase()!==tag.toLowerCase());saveLiveProduct(product);res.json({ok:true,verified:true,message:`Verified: removed the “${tag}” tag.`,product});
+  recordTagRemoval(req.params.id,tag);
+  let product=null;
+  for(let attempt=0;attempt<5;attempt++){if(attempt)await sleep(1500);product=await liveProduct(req.params.id);if(!product.tags.some(x=>x.toLowerCase()===tag.toLowerCase())){product.tags=product.tags.filter(x=>x.toLowerCase()!==tag.toLowerCase());saveLiveProduct(product);return res.json({ok:true,verified:true,message:`Verified: removed the “${tag}” tag.`,product})}}
+  product.tags=product.tags.filter(x=>x.toLowerCase()!==tag.toLowerCase());saveLiveProduct(product);res.status(202).json({ok:true,accepted:true,verified:false,message:`SellerChamp accepted the tag change. This item is hidden for 3 days while SellerChamp finishes updating.`,product});
 }catch(e){res.status(e.status||500).json({error:'SellerChamp tag removal failed.',details:e.data||e.message})}});
 app.post('/api/product/:id/end-listing',async(req,res)=>{try{
   await sc(`/api/products/${encodeURIComponent(req.params.id)}?delete_product=false&end_listing_on_marketplace=true&delete_listing_on_marketplace=false&delete_linked_products=false`,{method:'DELETE'});
