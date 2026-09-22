@@ -11,7 +11,7 @@ One Render service and one persistent disk containing six independently routed m
 
 The original module source is kept in separate folders under `modules/`. The gateway gives each module its own path and process, so module-specific changes remain isolated. Shared environment settings are normalized by the gateway. One suite-level PIN login covers the dashboard and all six modules for 30 days.
 
-Version 1.15 adds verified reserve-quantity editing and verified removal of the currently selected tag. Once SellerChamp confirms tag removal, the completed Product immediately disappears from the working list.
+Version 1.15 loads each displayed Product's current reserve quantity from its full SellerChamp record, provides verified reserve updates, and can remove the selected tag after work is complete. Existing verified quantity, location, and end-listing controls remain available. Batch-only results remain protected from Product writes.
 
 ## Deploy on Render
 

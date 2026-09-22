@@ -57,7 +57,7 @@ async function liveProduct(id){
   let inventory=[];
   try{inventory=(await sc(`/api/products/${encodeURIComponent(id)}/inventory_locations`)).inventory_locations||[]}catch{}
   const locations=inventory.map(x=>({id:String(x.id||''),location:String(x.location||''),quantity:Number(x.quantity_available||0),priority:Number(x.priority||1),delete_if_empty:x.delete_if_empty!==false}));
-  return {id:product.id||id,sku:product.sku||'',title:product.title||'',image:imageOf(product),tags:tagsOf(product),locations,quantity_available:locations.length?locations.reduce((sum,x)=>sum+x.quantity,0):Number(product.quantity_available||0),reserve_quantity:Number(product.reserve_quantity||0),reserve_quantity_location:String(product.reserve_quantity_location||''),status:productStatus(product),source:'product'};
+  return {id:product.id||id,sku:product.sku||'',title:product.title||'',image:imageOf(product),tags:tagsOf(product),locations,quantity_available:locations.length?locations.reduce((sum,x)=>sum+x.quantity,0):Number(product.quantity_available||0),reserve_quantity:Number(product.reserve_quantity||0),reserve_quantity_location:String(product.reserve_quantity_location||''),reserve_live_loaded:true,status:productStatus(product),source:'product'};
 }
 function saveLiveProduct(live){
   const index=load(PRODUCT_INDEX),id=String(live.id||'');let changed=false;
@@ -78,7 +78,7 @@ async function buildIndexes(){
         const productTags=tagsOf(p);let productLocations=locationsOf(p);
         if(productTags.length){progress.tagged_products+=1;for(const tag of productTags)uniqueTags.add(tag.toLowerCase())}
         if(productTags.length&&!productLocations.length&&p.id){try{const inventory=await sc(`/api/products/${encodeURIComponent(p.id)}/inventory_locations`);productLocations=(inventory.inventory_locations||[]).map(x=>({location:String(x.location||''),quantity:Number(x.quantity_available||0)}))}catch{}}
-        const base={id:p.id||'',sku:String(p.sku||p.custom_catalogue_sku||p.catalogue_sku||''),upc:String(p.upc||p.barcode||''),title:String(p.title||p.product_title||''),image:imageOf(p),quantity_available:Number(p.quantity_available||0),reserve_quantity:Number(p.reserve_quantity||0),reserve_quantity_location:String(p.reserve_quantity_location||''),tags:productTags,locations:productLocations,status:String(p.marketplace_status||p.status||''),source:'product'};
+        const base={id:p.id||'',sku:String(p.sku||p.custom_catalogue_sku||p.catalogue_sku||''),upc:String(p.upc||p.barcode||''),title:String(p.title||p.product_title||''),image:imageOf(p),quantity_available:Number(p.quantity_available||0),reserve_quantity:Number(p.reserve_quantity||0),reserve_quantity_location:String(p.reserve_quantity_location||''),reserve_live_loaded:false,tags:productTags,locations:productLocations,status:String(p.marketplace_status||p.status||''),source:'product'};
         for(const row of [base,...variants.map(v=>({...base,sku:String(v.sku||base.sku),upc:String(v.upc||v.barcode||base.upc)}))]){const key=`${row.id}|${row.sku}|${row.upc}`;if(!seen.has(key)){seen.add(key);products.push(row)}}
       }
       progress.products+=rows.length;progress.indexed_products=products.length;progress.unique_tags=uniqueTags.size;if(!rows.length||rows.length<100)break;
@@ -118,6 +118,7 @@ app.get('/api/tags',(req,res)=>{
 app.get('/api/search',(req,res)=>{const tag=String(req.query.tag||'').trim().toLowerCase(),source=String(req.query.source||'all');if(!tag)return res.status(400).json({error:'Enter a tag to search.'});let rows=currentItems().filter(x=>(x.tags||[]).some(t=>String(t).toLowerCase()===tag));if(source!=='all')rows=rows.filter(x=>x.source===source);rows.sort((a,b)=>natural(a.locations?.[0]?.location,b.locations?.[0]?.location)||natural(a.sku,b.sku));res.json({results:rows,count:rows.length,building})});
 app.post('/api/refresh',(req,res)=>{if(!building)buildIndexes().catch(error=>console.error('Tag index refresh failed:',error.message));res.status(202).json({ok:true,building:true,message:building?'Refresh already running.':'Refresh started.'})});
 app.get('/api/product/:id/live',async(req,res)=>{try{const product=await liveProduct(req.params.id);saveLiveProduct(product);res.json({product})}catch(e){res.status(e.status||500).json({error:'Could not reload this product.',details:e.data||e.message})}});
+app.get('/api/product/:id/reserve',async(req,res)=>{try{const detail=await sc(`/api/products/${encodeURIComponent(req.params.id)}.json`),product=detail.product||detail||{};res.json({ok:true,reserve_quantity:Number(product.reserve_quantity||0),reserve_quantity_location:String(product.reserve_quantity_location||'')})}catch(e){res.status(e.status||500).json({error:'Could not load the current reserve quantity.',details:e.data||e.message})}});
 app.post('/api/product/:id/quantity',async(req,res)=>{try{
   const quantity=Number(req.body?.quantity),locationId=String(req.body?.location_id||''),locationName=String(req.body?.location||'');
   if(!Number.isInteger(quantity)||quantity<0)return res.status(400).json({error:'Enter a whole-number quantity of 0 or greater.'});
@@ -141,26 +142,27 @@ app.post('/api/product/:id/location',async(req,res)=>{try{
   if(!verified||String(verified.location||'').trim().toLowerCase()!==newLocation.toLowerCase())return res.status(409).json({error:'SellerChamp did not confirm the location update. No success was reported.'});
   saveLiveProduct(product);res.json({ok:true,verified:true,message:`Verified: location changed from ${row.location||'NO LOCATION'} to ${verified.location}.`,product});
 }catch(e){res.status(e.status||500).json({error:'SellerChamp location update failed.',details:e.data||e.message})}});
+app.post('/api/product/:id/reserve',async(req,res)=>{try{
+  const quantity=Number(req.body?.quantity);
+  if(!Number.isInteger(quantity)||quantity<0)return res.status(400).json({error:'Enter a whole-number reserve quantity of 0 or greater.'});
+  const detail=await sc(`/api/products/${encodeURIComponent(req.params.id)}.json`),before=detail.product||detail||{};
+  let location=String(before.reserve_quantity_location||req.body?.location||'').trim();
+  if(!location){const inventory=(await sc(`/api/products/${encodeURIComponent(req.params.id)}/inventory_locations`)).inventory_locations||[];location=String(inventory[0]?.location||'').trim()}
+  await sc(`/api/products/${encodeURIComponent(req.params.id)}`,{method:'PUT',body:JSON.stringify({product:{reserve_quantity:quantity,reserve_quantity_location:location}})});
+  let product=null;
+  for(let attempt=0;attempt<6;attempt++){await sleep(attempt===0?1200:2000);product=await liveProduct(req.params.id);if(Number(product.reserve_quantity)===quantity){saveLiveProduct(product);return res.json({ok:true,verified:true,message:`Verified: reserve quantity is now ${quantity}.`,product})}}
+  return res.status(409).json({error:`SellerChamp did not confirm reserve quantity ${quantity}. No verified success was reported.`});
+}catch(e){res.status(e.status||500).json({error:'SellerChamp reserve quantity update failed.',details:e.data||e.message})}});
 app.post('/api/product/:id/remove-tag',async(req,res)=>{try{
   const tag=String(req.body?.tag||'').trim();if(!tag)return res.status(400).json({error:'Choose a tag to remove.'});
   const detail=await sc(`/api/products/${encodeURIComponent(req.params.id)}.json`),before=detail.product||detail||{},beforeTags=tagsOf(before);
-  if(!beforeTags.some(value=>String(value).trim().toLowerCase()===tag.toLowerCase()))return res.status(404).json({error:`SellerChamp no longer reports the tag “${tag}” on this Product.`});
-  const remaining=beforeTags.filter(value=>String(value).trim().toLowerCase()!==tag.toLowerCase());
+  if(!beforeTags.some(x=>x.toLowerCase()===tag.toLowerCase()))return res.status(404).json({error:`This Product no longer has the “${tag}” tag.`});
+  const remaining=beforeTags.filter(x=>x.toLowerCase()!==tag.toLowerCase());
   await sc(`/api/products/${encodeURIComponent(req.params.id)}`,{method:'PUT',body:JSON.stringify({product:{tags_array:remaining}})});
   const product=await liveProduct(req.params.id);
-  if(product.tags.some(value=>String(value).trim().toLowerCase()===tag.toLowerCase()))return res.status(409).json({error:`SellerChamp did not confirm removal of the tag “${tag}”. No success was reported.`});
-  saveLiveProduct(product);res.json({ok:true,verified:true,message:`Verified: removed the tag “${tag}”.`,product});
+  if(product.tags.some(x=>x.toLowerCase()===tag.toLowerCase()))return res.status(409).json({error:`SellerChamp did not confirm removal of the “${tag}” tag. No verified success was reported.`});
+  saveLiveProduct(product);res.json({ok:true,verified:true,message:`Verified: removed the “${tag}” tag.`,product});
 }catch(e){res.status(e.status||500).json({error:'SellerChamp tag removal failed.',details:e.data||e.message})}});
-app.post('/api/product/:id/reserve',async(req,res)=>{try{
-  const quantity=Number(req.body?.quantity);if(!Number.isInteger(quantity)||quantity<0)return res.status(400).json({error:'Enter a whole-number reserve quantity of 0 or greater.'});
-  const detail=await sc(`/api/products/${encodeURIComponent(req.params.id)}.json`),before=detail.product||detail||{};
-  let reserveLocation=String(before.reserve_quantity_location||req.body?.location||'').trim();
-  if(!reserveLocation){try{const inventory=(await sc(`/api/products/${encodeURIComponent(req.params.id)}/inventory_locations`)).inventory_locations||[];reserveLocation=String(inventory[0]?.location||'')}catch{}}
-  await sc(`/api/products/${encodeURIComponent(req.params.id)}`,{method:'PUT',body:JSON.stringify({product:{reserve_quantity:quantity,reserve_quantity_location:reserveLocation}})});
-  let product=null;
-  for(let attempt=0;attempt<6;attempt++){await sleep(attempt===0?1200:2000);product=await liveProduct(req.params.id);if(Number(product.reserve_quantity)===quantity){saveLiveProduct(product);return res.json({ok:true,verified:true,message:`Verified: reserve quantity is now ${quantity}.`,product})}}
-  return res.status(409).json({error:`SellerChamp accepted the reserve update, but still reports ${Number(product?.reserve_quantity||0)}. No verified success was reported.`});
-}catch(e){res.status(e.status||500).json({error:'SellerChamp reserve quantity update failed.',details:e.data||e.message})}});
 app.post('/api/product/:id/end-listing',async(req,res)=>{try{
   await sc(`/api/products/${encodeURIComponent(req.params.id)}?delete_product=false&end_listing_on_marketplace=true&delete_listing_on_marketplace=false&delete_linked_products=false`,{method:'DELETE'});
   let product=null;

@@ -18,5 +18,3 @@ Version 1.3 replaces free-text entry with a dropdown of every indexed tag. Each 
 Version 1.4 exposes tags and search results while the Product index is still building, adds live scanned/tagged/unique-tag counters, and avoids adding status polling calls to the SellerChamp refresh queue.
 
 Version 1.5 adds per-location quantity and location controls to Product results. Every update is reloaded and verified against SellerChamp before success is reported. End Listing requires confirmation and polls SellerChamp until an inactive/ended status is verified.
-
-Version 1.6 adds a Reserve Quantity action and a Remove Current Tag action. Reserve changes are read back from SellerChamp before success is reported. Tag removal preserves unrelated tags, verifies removal, updates the saved index, and removes the completed item from the current results.
