@@ -13,11 +13,20 @@ fs.mkdirSync(DATA_DIR,{recursive:true});
 app.use(express.json({limit:'100kb'}));
 app.use(express.static(path.join(__dirname,'public')));
 
-async function sc(endpoint){
-  const response=await fetch(SC_BASE+endpoint,{headers:{Token:TOKEN,'Content-Type':'application/json'}});
-  const text=await response.text();let data={};try{data=text?JSON.parse(text):{}}catch{data={raw:text}}
-  if(!response.ok){const error=new Error(`SellerChamp returned ${response.status}`);error.status=response.status;error.data=data;throw error}return data;
+const REQUEST_GAP_MS=Number(process.env.SC_REQUEST_GAP_MS||750),RETRY_BASE_MS=Number(process.env.SC_RETRY_BASE_MS||2000);let scQueue=Promise.resolve(),lastScAt=0;
+const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function scDirect(endpoint){
+  for(let attempt=0;attempt<7;attempt++){
+    const wait=Math.max(0,REQUEST_GAP_MS-(Date.now()-lastScAt));if(wait)await sleep(wait);lastScAt=Date.now();
+    const response=await fetch(SC_BASE+endpoint,{headers:{Token:TOKEN,'Content-Type':'application/json'}});
+    const text=await response.text();let data={};try{data=text?JSON.parse(text):{}}catch{data={raw:text}}
+    if(response.status===429){const retryDelay=Math.min(30000,RETRY_BASE_MS*Math.pow(1.7,attempt));progress.rate_limited=(progress.rate_limited||0)+1;progress.waiting_seconds=Math.ceil(retryDelay/1000);await sleep(retryDelay);continue}
+    progress.waiting_seconds=0;
+    if(!response.ok){const error=new Error(`SellerChamp returned ${response.status}`);error.status=response.status;error.data=data;throw error}return data;
+  }
+  const error=new Error('SellerChamp is still rate-limiting the refresh. Wait five minutes and try again.');error.status=429;throw error;
 }
+function sc(endpoint){const job=scQueue.then(()=>scDirect(endpoint));scQueue=job.catch(()=>{});return job}
 function tagsOf(row){
   const candidates=[row,row?.product,row?.master_product,row?.product_listing,row?.catalogue_product].filter(Boolean);
   const found=[];
@@ -32,11 +41,12 @@ function locationsOf(p){const rows=(Array.isArray(p?.inventory_locations)?p.inve
 function load(file){try{const data=JSON.parse(fs.readFileSync(file,'utf8'));return {items:Array.isArray(data.items)?data.items:[],updated_at:data.updated_at||null}}catch{return {items:[],updated_at:null}}}
 function write(file,data,suffix){const temporary=`${file}.${suffix}.tmp`;fs.writeFileSync(temporary,JSON.stringify(data));fs.renameSync(temporary,file)}
 function natural(a,b){return String(a||'ZZZZ').localeCompare(String(b||'ZZZZ'),undefined,{numeric:true,sensitivity:'base'})}
-let building=false,buildError='',progress={phase:'idle',products:0,batches:0};
+let building=false,buildError='',progress={phase:'idle',products:0,batches:0,rate_limited:0,waiting_seconds:0};
 
 async function buildIndexes(){
   if(building)return;building=true;buildError='';progress={phase:'products',products:0,batches:0};
   try{
+    progress={phase:'products',products:0,batches:0,rate_limited:0,waiting_seconds:0};
     const products=[],seen=new Set();
     for(let page=1;page<=5000;page++){
       const data=await sc(`/api/products?page=${page}&page_size=100`),rows=Array.isArray(data.products)?data.products:[];
@@ -68,10 +78,10 @@ async function buildIndexes(){
   }catch(error){buildError=error.message||'Refresh failed.';progress.phase='error';throw error}finally{building=false}
 }
 
-app.get('/api/status',async(req,res)=>{try{await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.1.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
+app.get('/api/status',async(req,res)=>{try{await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.2.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
 app.get('/api/tags',(req,res)=>{const all=[...load(PRODUCT_INDEX).items,...load(BATCH_INDEX).items];const tags=[...new Set(all.flatMap(x=>x.tags||[]).map(x=>String(x).trim()).filter(Boolean))].sort(natural);res.json({tags})});
 app.get('/api/search',(req,res)=>{const tag=String(req.query.tag||'').trim().toLowerCase(),source=String(req.query.source||'all');if(!tag)return res.status(400).json({error:'Enter a tag to search.'});let rows=[...load(PRODUCT_INDEX).items,...load(BATCH_INDEX).items].filter(x=>(x.tags||[]).some(t=>String(t).toLowerCase()===tag));if(source!=='all')rows=rows.filter(x=>x.source===source);rows.sort((a,b)=>natural(a.locations?.[0]?.location,b.locations?.[0]?.location)||natural(a.sku,b.sku));res.json({results:rows,count:rows.length,building})});
-app.post('/api/refresh',(req,res)=>{if(!building)buildIndexes().catch(error=>console.error('Tag index refresh failed:',error.message));res.status(202).json({ok:true,building:true})});
+app.post('/api/refresh',(req,res)=>{if(!building)buildIndexes().catch(error=>console.error('Tag index refresh failed:',error.message));res.status(202).json({ok:true,building:true,message:building?'Refresh already running.':'Refresh started.'})});
 app.get('/api/product/:id/live',async(req,res)=>{try{const detail=await sc(`/api/products/${encodeURIComponent(req.params.id)}.json`),product=detail.product||detail||{};let inventory=[];try{inventory=(await sc(`/api/products/${encodeURIComponent(req.params.id)}/inventory_locations`)).inventory_locations||[]}catch{}res.json({product:{id:product.id,sku:product.sku||'',title:product.title||'',image:imageOf(product),tags:tagsOf(product),locations:inventory.map(x=>({location:x.location||'',quantity:Number(x.quantity_available||0)})),quantity_available:Number(product.quantity_available||0),status:String(product.marketplace_status||product.status||'')}})}catch(e){res.status(e.status||500).json({error:'Could not reload this product.',details:e.data||e.message})}});
 app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
 app.listen(PORT,()=>{console.log(`SellerChamp Tag Location Sorter running on ${PORT}`);const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);if(!p.items.length||!b.items.length)buildIndexes().catch(error=>console.error('Initial tag index refresh failed:',error.message))});

@@ -1,6 +1,11 @@
-# SellerChamp Location Mover v2.36.0
+# SellerChamp Location Mover v2.37.0
 
 This build fixes relocation + Notes behavior by preferring SellerChamp's standard product record when an item can be found by SKU/UPC/ASIN. A full move updates the existing inventory-location record (so the old location is replaced) and prepends `Previously on OLD-LOCATION - ` to `item_remarks`. Catalog Sync remains available as a fallback.
+
+## v2.37.0
+
+- Delegates combined-suite index refreshes to the Tag module so both modules do not scan SellerChamp simultaneously.
+- Continues to read the shared index and live-reload the selected Product before any move or quantity update.
 
 ## v2.36.0
 

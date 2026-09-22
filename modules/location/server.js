@@ -542,7 +542,7 @@ app.get('/api/status', async (req, res) => {
     const data = await scFetch('/api/marketplace_accounts');
     res.json({
       ok: true,
-      version: '2.36.0',
+      version: '2.37.0',
       pinRequired: !!APP_PIN,
       accounts: (data.marketplace_accounts || []).map(a => ({ id: a.id, name: a.name, marketplace: a.marketplace })),
       search_index: {
@@ -558,6 +558,15 @@ app.get('/api/status', async (req, res) => {
 });
 
 app.post('/api/search-index/refresh', async (req, res) => {
+  if (process.env.SHARED_INDEX_OWNER === 'tags') {
+    try {
+      const response = await fetch(`${process.env.TAG_SORT_INTERNAL_URL || 'http://127.0.0.1:3106'}/api/refresh`, { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+      const data = await response.json().catch(() => ({}));
+      return res.status(response.status).json(data);
+    } catch (error) {
+      return res.status(503).json({ error:'The shared index service is still starting. Try again in a moment.', details:error.message });
+    }
+  }
   if (searchIndexBuilding) return res.status(202).json({ ok:true, building:true, count:searchIndex.length, updated_at:searchIndexUpdatedAt });
   rebuildSearchIndex().catch(error => console.error('Search index refresh failed:', error.message));
   res.status(202).json({ ok:true, building:true, count:searchIndex.length, updated_at:searchIndexUpdatedAt });
@@ -920,11 +929,13 @@ app.use((req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html'))
 app.listen(PORT, () => {
   console.log(`SellerChamp Location Mover running on port ${PORT}`);
   const age = searchIndexUpdatedAt ? Date.now() - new Date(searchIndexUpdatedAt).getTime() : Infinity;
-  if (age >= SEARCH_INDEX_MAX_AGE_MS) {
+  if (process.env.SHARED_INDEX_OWNER !== 'tags' && age >= SEARCH_INDEX_MAX_AGE_MS) {
     rebuildSearchIndex().catch(error => console.error('Initial search index refresh failed:', error.message));
   }
 });
 
-setInterval(() => {
-  rebuildSearchIndex().catch(error => console.error('Scheduled search index refresh failed:', error.message));
-}, SEARCH_INDEX_MAX_AGE_MS).unref();
+if (process.env.SHARED_INDEX_OWNER !== 'tags') {
+  setInterval(() => {
+    rebuildSearchIndex().catch(error => console.error('Scheduled search index refresh failed:', error.message));
+  }, SEARCH_INDEX_MAX_AGE_MS).unref();
+}
