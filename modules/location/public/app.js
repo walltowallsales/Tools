@@ -29,12 +29,31 @@ function busy(btn,on,label) { if(on){btn.dataset.old=btn.textContent;btn.textCon
 async function checkStatus(){
   try{
     const data=await api('/api/status');
-    $('connection').textContent='SellerChamp connected'; if($('appVersion')) $('appVersion').textContent='v'+(data.version||'2.33.0'); $('connection').className='status ok'; $('pinCard').classList.add('hidden');
+    $('connection').textContent='SellerChamp connected'; if($('appVersion')) $('appVersion').textContent='v'+(data.version||'2.35.0'); $('connection').className='status ok'; $('pinCard').classList.add('hidden');
+    showIndexStatus(data.search_index||{});
   }catch(e){
     $('connection').textContent=e.message.includes('PIN')?'PIN required':'Not connected'; $('connection').className='status bad';
     if(e.message.includes('PIN')) $('pinCard').classList.remove('hidden');
   }
 }
+
+function showIndexStatus(index){
+  if(!$('indexStatus'))return;
+  if(index.building){$('indexStatus').textContent=`Building fast search… ${Number(index.count||0).toLocaleString()} saved items available`;return;}
+  if(index.count){
+    const when=index.updated_at?new Date(index.updated_at).toLocaleString():'';
+    $('indexStatus').textContent=`Fast search ready: ${Number(index.count).toLocaleString()} items${when?` • Updated ${when}`:''}`;
+    return;
+  }
+  $('indexStatus').textContent=index.error?'Fast search unavailable; using live search.':'Preparing fast search…';
+}
+
+$('refreshIndex').onclick=async()=>{
+  busy($('refreshIndex'),true,'Starting…');
+  try{await api('/api/search-index/refresh',{method:'POST',body:'{}'});toast('Search refresh started. You can keep working.','success');setTimeout(checkStatus,1500);}
+  catch(e){toast(e.message,'error');}
+  finally{busy($('refreshIndex'),false);}
+};
 
 $('savePin').onclick=()=>{state.pin=$('pin').value.trim();sessionStorage.setItem('appPin',state.pin);checkStatus();};
 $('lookup').addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();findItem();} });
@@ -48,14 +67,14 @@ $('openBatchBtn').onclick=async()=>{
   window.open(u,'_blank','noopener');
 };
 
-async function findItem(forceFullLookup=false){
+async function findItem(forceFullLookup=false,selectedProductId=''){
   const code=$('lookup').value.trim(); if(!code) return toast('Scan or enter an item first.','error');
   $('titleResults').classList.add('hidden');$('titleResults').innerHTML='';
   busy($('findBtn'),true,'Finding…');
   try{
     // The first pass checks Products only, so partial text never triggers the
     // much slower Batch/Manifest scan. A selected result uses the full lookup.
-    const data=await api(`/api/lookup?code=${encodeURIComponent(code)}${forceFullLookup?'':'&skipBatch=1'}`);
+    const data=await api(`/api/lookup?code=${encodeURIComponent(code)}${selectedProductId?`&productId=${encodeURIComponent(selectedProductId)}`:''}${forceFullLookup?'':'&skipBatch=1'}`);
     currentProduct=data.product; showProduct();
     if(state.rapid){ lookupState='destination'; $('toLocation').focus(); toast('Item found. Scan the destination location.'); }
   }catch(exactError){
@@ -88,7 +107,7 @@ function renderTitleResults(results){
     const p=results[Number(btn.dataset.i)];
     $('lookup').value=p.sku;
     box.classList.add('hidden');
-    await findItem(true);
+    await findItem(true,p.id||'');
   });
 }
 

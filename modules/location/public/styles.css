@@ -13,6 +13,7 @@
 .location-name{font-weight:850;font-size:17px}
 .location-qty{font-weight:800;white-space:nowrap;color:#374151}
 .location-empty{padding:11px 12px;color:#6b7280}
+.index-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;color:#6b7280;font-size:12px}.index-row button{white-space:nowrap}
 @media(max-width:520px){.product-img{width:112px;height:112px;flex-basis:112px}.sku{font-size:21px}.product-head h2{font-size:17px}}
 
 /* v2.6 navigation + move confirmation */

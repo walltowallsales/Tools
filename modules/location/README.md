@@ -1,6 +1,18 @@
-# SellerChamp Location Mover v2.33.0
+# SellerChamp Location Mover v2.35.0
 
 This build fixes relocation + Notes behavior by preferring SellerChamp's standard product record when an item can be found by SKU/UPC/ASIN. A full move updates the existing inventory-location record (so the old location is replaced) and prepends `Previously on OLD-LOCATION - ` to `item_remarks`. Catalog Sync remains available as a fallback.
+
+## v2.35.0
+
+- Adds a lightweight local index for fast partial SKU, UPC, and product-title searches.
+- Builds the index automatically, refreshes it every 24 hours, and includes a manual **Refresh Search** button.
+- Uses the local data only to identify a product. Selecting a match reloads that exact product ID, locations, and quantities live from SellerChamp.
+- Keeps targeted live SellerChamp search as the fallback while the index is building or when an item is not yet indexed.
+
+## v2.34.0
+
+- Uses targeted SellerChamp SKU, UPC, and text searches before the catalogue-page fallback.
+- Fixes partial SKU searches for older items, such as `42859` matching `2510-42859`.
 
 ## v2.33.0
 

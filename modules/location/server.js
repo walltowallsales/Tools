@@ -2,12 +2,23 @@
 
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const TOKEN = process.env.SELLERCHAMP_TOKEN || '';
 const APP_PIN = process.env.APP_PIN || '';
 const SC_BASE = (process.env.SELLERCHAMP_BASE_URL || 'https://app.sellerchamp.com').replace(/\/$/, '');
+const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data'));
+const SEARCH_INDEX_FILE = path.join(DATA_DIR, 'move-product-search-index.json');
+const SEARCH_INDEX_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+fs.mkdirSync(DATA_DIR, { recursive: true });
+
+let searchIndex = [];
+let searchIndexUpdatedAt = null;
+let searchIndexBuilding = false;
+let searchIndexError = '';
+let searchIndexPromise = null;
 
 app.use(express.json({ limit: '200kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -48,6 +59,98 @@ async function scFetch(endpoint, options = {}) {
   }
   return data;
 }
+
+function indexRowsFromProduct(p) {
+  const variants = Array.isArray(p.variants) ? p.variants : [];
+  const parentSku = String(p.sku || p.custom_catalogue_sku || p.catalogue_sku || '');
+  const base = {
+    id: p.id || '',
+    title: String(p.title || p.product_title || ''),
+    image: p.primary_image || p.primary_image_url || p.image_url || p.image ||
+      p.product_images?.[0]?.large_image_url || p.product_images?.[0]?.image_url || '',
+    quantity_available: Number(p.quantity_available || 0)
+  };
+  const rows = [{
+    ...base,
+    sku: parentSku,
+    upc: String(p.upc || p.barcode || '')
+  }];
+  for (const variant of variants) {
+    const variantSku = String(variant.sku || variant.custom_catalogue_sku || variant.catalogue_sku || '');
+    const variantUpc = String(variant.upc || variant.barcode || '');
+    if (variantSku) rows.push({ ...base, sku: variantSku, upc: '' });
+    if (variantUpc) rows.push({ ...base, sku: parentSku || variantSku, upc: variantUpc });
+  }
+  return rows.filter(row => row.sku || row.upc || row.title);
+}
+
+function loadSearchIndex() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(SEARCH_INDEX_FILE, 'utf8'));
+    if (Array.isArray(saved.items)) searchIndex = saved.items;
+    searchIndexUpdatedAt = saved.updated_at || null;
+  } catch {}
+}
+
+async function rebuildSearchIndex() {
+  if (searchIndexPromise) return searchIndexPromise;
+  searchIndexBuilding = true;
+  searchIndexError = '';
+  searchIndexPromise = (async () => {
+    const next = [];
+    const seen = new Set();
+    const pageSize = 100;
+    for (let page = 1; page <= 5000; page += 1) {
+      const data = await scFetch(`/api/products.json?page=${page}&page_size=${pageSize}`);
+      const products = Array.isArray(data.products) ? data.products : [];
+      if (!products.length) break;
+      for (const product of products) {
+        for (const row of indexRowsFromProduct(product)) {
+          const key = `${row.id}|${row.sku.toLowerCase()}|${row.upc.toLowerCase()}`;
+          if (!seen.has(key)) { seen.add(key); next.push(row); }
+        }
+      }
+      if (products.length < pageSize) break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    const updatedAt = new Date().toISOString();
+    const temporary = `${SEARCH_INDEX_FILE}.tmp`;
+    fs.writeFileSync(temporary, JSON.stringify({ updated_at: updatedAt, items: next }));
+    fs.renameSync(temporary, SEARCH_INDEX_FILE);
+    searchIndex = next;
+    searchIndexUpdatedAt = updatedAt;
+    return { count: next.length, updated_at: updatedAt };
+  })().catch(error => {
+    searchIndexError = error.message || 'Search index refresh failed.';
+    throw error;
+  }).finally(() => {
+    searchIndexBuilding = false;
+    searchIndexPromise = null;
+  });
+  return searchIndexPromise;
+}
+
+function searchLocalIndex(query) {
+  const needle = query.toLowerCase();
+  return searchIndex.map(row => {
+    const sku = String(row.sku || '');
+    const upc = String(row.upc || '');
+    const title = String(row.title || '');
+    let score = 0;
+    let matchLabel = '';
+    if (sku.toLowerCase() === needle) { score = 500; matchLabel = 'SKU match'; }
+    else if (upc.toLowerCase() === needle) { score = 490; matchLabel = 'UPC match'; }
+    else if (sku.toLowerCase().startsWith(needle)) { score = 400; matchLabel = 'SKU match'; }
+    else if (sku.toLowerCase().includes(needle)) { score = 350; matchLabel = 'SKU match'; }
+    else if (upc.toLowerCase().includes(needle)) { score = 330; matchLabel = 'UPC match'; }
+    else if (title.toLowerCase().startsWith(needle)) { score = 250; matchLabel = 'Title match'; }
+    else if (title.toLowerCase().includes(needle)) { score = 200; matchLabel = 'Title match'; }
+    return score ? { ...row, score, match_label: matchLabel } : null;
+  }).filter(Boolean).sort((a,b) => b.score - a.score || a.sku.localeCompare(b.sku)).slice(0,30)
+    .map(({ score, ...row }) => row);
+}
+
+loadSearchIndex();
 
 const CHANGE_LOG_URL = 'https://script.google.com/macros/s/AKfycbw2UHYXOzZajklEXvHf-o5Ht1f6P6e4ifmzWVsRdbyUnVisv-23SUxRrlVr6QMgJk5ZpA/exec';
 async function logChange(entry) {
@@ -411,31 +514,39 @@ function applyManifestMatch(product, match) {
 app.get('/api/status', async (req, res) => {
   try {
     const data = await scFetch('/api/marketplace_accounts');
-    res.json({ ok: true, version: '2.33.0', pinRequired: !!APP_PIN, accounts: (data.marketplace_accounts || []).map(a => ({ id: a.id, name: a.name, marketplace: a.marketplace })) });
+    res.json({
+      ok: true,
+      version: '2.35.0',
+      pinRequired: !!APP_PIN,
+      accounts: (data.marketplace_accounts || []).map(a => ({ id: a.id, name: a.name, marketplace: a.marketplace })),
+      search_index: {
+        count: searchIndex.length,
+        updated_at: searchIndexUpdatedAt,
+        building: searchIndexBuilding,
+        error: searchIndexError
+      }
+    });
   } catch (e) {
     res.status(e.status || 500).json({ error: 'Could not connect to SellerChamp.', details: e.data || e.message });
   }
+});
+
+app.post('/api/search-index/refresh', async (req, res) => {
+  if (searchIndexBuilding) return res.status(202).json({ ok:true, building:true, count:searchIndex.length, updated_at:searchIndexUpdatedAt });
+  rebuildSearchIndex().catch(error => console.error('Search index refresh failed:', error.message));
+  res.status(202).json({ ok:true, building:true, count:searchIndex.length, updated_at:searchIndexUpdatedAt });
 });
 
 app.get('/api/item-search', async (req,res)=>{
   const q=String(req.query.q||'').trim();
   if(q.length<2)return res.status(400).json({error:'Enter at least 2 characters from the SKU, UPC, or title.'});
   try{
+    const localResults=searchLocalIndex(q);
+    if(localResults.length)return res.json({results:localResults,source:'local-index',updated_at:searchIndexUpdatedAt});
+
     const needle=q.toLowerCase(), candidates=[], seen=new Set();
 
-    // SellerChamp's Products endpoint does not reliably honor partial text
-    // filters. Scan Products pages and match SKU, UPC, and title locally.
-    // Stop after 30 choices or the end of the product list.
-    for(let page=1;page<=100 && candidates.length<30;page++){
-      let data;
-      try{
-        data=await scFetch(`/api/products.json?page=${page}&page_size=100`);
-      }catch(e){
-        if([400,404,422].includes(e.status))break;
-        throw e;
-      }
-      const rows=Array.isArray(data.products)?data.products:[];
-      if(!rows.length)break;
+    const addMatchingRows=(rows)=>{
       for(const p of rows){
         const title=String(p.title||p.product_title||'');
         const variants=Array.isArray(p.variants)?p.variants:[];
@@ -466,10 +577,20 @@ app.get('/api/item-search', async (req,res)=>{
         });
         if(candidates.length>=30)break;
       }
-      if(rows.length<100)break;
+    };
+
+    // Filtered requests can find older products beyond the first catalogue pages.
+    for(const filter of ['sku','upc','query']){
+      try{
+        const data=await scFetch(`/api/products.json?${filter}=${encodeURIComponent(q)}&page=1&page_size=100`);
+        addMatchingRows(Array.isArray(data.products)?data.products:[]);
+      }catch(e){
+        if(![400,404,422].includes(e.status))throw e;
+      }
+      if(candidates.length>=30)break;
     }
 
-    res.json({results:candidates.slice(0,30)});
+    res.json({results:candidates.slice(0,30),source:'sellerchamp-live',updated_at:searchIndexUpdatedAt});
   }catch(e){
     res.status(e.status||500).json({error:'SellerChamp item search failed.',details:e.data||e.message});
   }
@@ -477,10 +598,11 @@ app.get('/api/item-search', async (req,res)=>{
 
 app.get('/api/lookup', async (req, res) => {
   const code = String(req.query.code || '').trim();
+  const productId = String(req.query.productId || '').trim();
   if (!code) return res.status(400).json({ error: 'Enter or scan an SKU/barcode.' });
   try {
-    let product = await lookupLegacy(code);
-    if (!product) product = await lookupCatalog(code);
+    let product = productId ? await lookupProductById(productId) : await lookupLegacy(code);
+    if (!product && !productId) product = await lookupCatalog(code);
 
     // FAST PATH: if Products already returned a real inventory-location record,
     // it is immediately usable by this app. Do not scan Batches at all.
@@ -768,4 +890,14 @@ app.get('/api/locations', async (req, res) => {
 
 app.use((req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-app.listen(PORT, () => console.log(`SellerChamp Location Mover running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`SellerChamp Location Mover running on port ${PORT}`);
+  const age = searchIndexUpdatedAt ? Date.now() - new Date(searchIndexUpdatedAt).getTime() : Infinity;
+  if (age >= SEARCH_INDEX_MAX_AGE_MS) {
+    rebuildSearchIndex().catch(error => console.error('Initial search index refresh failed:', error.message));
+  }
+});
+
+setInterval(() => {
+  rebuildSearchIndex().catch(error => console.error('Scheduled search index refresh failed:', error.message));
+}, SEARCH_INDEX_MAX_AGE_MS).unref();

@@ -1,4 +1,4 @@
-# SellerChamp Tools Suite v1.5
+# SellerChamp Tools Suite v1.7
 
 One Render service and one persistent disk containing five independently routed modules:
 
@@ -10,7 +10,7 @@ One Render service and one persistent disk containing five independently routed 
 
 The original module source is kept in separate folders under `modules/`. The gateway gives each module its own path and process, so module-specific changes remain isolated. Shared environment settings are normalized by the gateway. One suite-level PIN login covers the dashboard and all five modules for 30 days.
 
-Version 1.5 updates only **Item - Move or Update Qty**. Its single search field now supports partial SKU, partial UPC, and partial product-title searches while preserving fast exact barcode/SKU lookup. The other four modules are unchanged.
+Version 1.7 updates only **Item - Move or Update Qty**. It keeps a lightweight product search index on the persistent disk for fast partial SKU, UPC, and title searches. Selecting a result still reloads that exact product's current location and quantity directly from SellerChamp. The index refreshes every 24 hours and can also be refreshed manually. The other four modules are unchanged.
 
 ## Deploy on Render
 
