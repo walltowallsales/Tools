@@ -92,3 +92,5 @@ If the quantity on hand at the current location is wrong, tap **Quantity is inco
 - v26: Shows Version 26 at the top; replaces the clickable Dynamic Pick Guide SKU with a small light-green SellerChamp button between title and order details; batch item-list Orders column now shows the same QTY / Order# breakdown as the Dynamic Pick Guide.
 
 - v27: Archived item rows include Add Back to Inventory and Update Inventory. Add Back returns some or all picked units to the same SellerChamp location; Update Inventory sets an exact quantity. Changes are recorded in the batch history.
+
+- v28: Fixes Create Pick Batch hanging on “Creating snapshot…” inside the combined suite by preserving POST request bodies as the gateway forwards them to the Pick module.

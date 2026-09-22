@@ -1,4 +1,4 @@
-# SellerChamp Tools Suite v1.12
+# SellerChamp Tools Suite v1.13
 
 One Render service and one persistent disk containing six independently routed modules:
 
@@ -6,12 +6,12 @@ One Render service and one persistent disk containing six independently routed m
 2. **Item - Inventory Verify** (`/inventory/`) — Inventory Checker v1.5
 3. **Item - Local Auction** (`/auction/`) — Auction Inventory v1.13
 4. **Item - Sort Tags by Location** (`/tags/`) — Tag Location Sorter v1.4
-5. **Shipping - Pick List** (`/shipping/`) — Pick Batch v27
+5. **Shipping - Pick List** (`/shipping/`) — Pick Batch v28
 6. **Orders - Returns** (`/returns/`) — Returns v2.48
 
 The original module source is kept in separate folders under `modules/`. The gateway gives each module its own path and process, so module-specific changes remain isolated. Shared environment settings are normalized by the gateway. One suite-level PIN login covers the dashboard and all six modules for 30 days.
 
-Version 1.12 exposes Product tags in the dropdown as soon as each index page is processed. It also reports live scanned, tagged-product, and unique-tag counts so an active build no longer misleadingly appears to contain zero tags.
+Version 1.13 fixes POST request forwarding through the combined-suite gateway. Creating Pick snapshots and other module updates no longer hang because of an already-consumed request body.
 
 ## Deploy on Render
 

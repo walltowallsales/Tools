@@ -1,11 +1,12 @@
 {
   "name": "sellerchamp-tools-suite",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "private": true,
   "engines": { "node": ">=20" },
   "scripts": {
     "start": "node gateway.js",
     "check": "node scripts/check-suite.js",
+    "test:gateway-post": "node scripts/test-gateway-post-body.js",
     "test:move-search": "node scripts/test-location-search.js",
     "test:tag-sort": "node scripts/test-tag-sort.js"
   },
