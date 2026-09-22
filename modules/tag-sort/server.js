@@ -41,27 +41,36 @@ function locationsOf(p){const rows=(Array.isArray(p?.inventory_locations)?p.inve
 function load(file){try{const data=JSON.parse(fs.readFileSync(file,'utf8'));return {items:Array.isArray(data.items)?data.items:[],updated_at:data.updated_at||null}}catch{return {items:[],updated_at:null}}}
 function write(file,data,suffix){const temporary=`${file}.${suffix}.tmp`;fs.writeFileSync(temporary,JSON.stringify(data));fs.renameSync(temporary,file)}
 function natural(a,b){return String(a||'ZZZZ').localeCompare(String(b||'ZZZZ'),undefined,{numeric:true,sensitivity:'base'})}
-let building=false,buildError='',progress={phase:'idle',products:0,batches:0,rate_limited:0,waiting_seconds:0};
+let building=false,buildError='',activeProducts=[],activeBatches=[];
+let progress={phase:'idle',products:0,indexed_products:0,tagged_products:0,unique_tags:0,batches:0,rate_limited:0,waiting_seconds:0};
+
+function currentItems(){
+  const savedProducts=load(PRODUCT_INDEX).items,savedBatches=load(BATCH_INDEX).items;
+  const products=building&&activeProducts.length?activeProducts:savedProducts;
+  const batches=building&&progress.phase==='batches'?activeBatches:savedBatches;
+  return [...products,...batches];
+}
 
 async function buildIndexes(){
-  if(building)return;building=true;buildError='';progress={phase:'products',products:0,batches:0};
+  if(building)return;building=true;buildError='';activeProducts=[];activeBatches=[];
   try{
-    progress={phase:'products',products:0,batches:0,rate_limited:0,waiting_seconds:0};
-    const products=[],seen=new Set();
+    progress={phase:'products',products:0,indexed_products:0,tagged_products:0,unique_tags:0,batches:0,rate_limited:0,waiting_seconds:0};
+    const products=activeProducts,seen=new Set(),uniqueTags=new Set();
     for(let page=1;page<=5000;page++){
       const data=await sc(`/api/products?page=${page}&page_size=100`),rows=Array.isArray(data.products)?data.products:[];
       for(const p of rows){
         const variants=Array.isArray(p.variants)?p.variants:[];
         const productTags=tagsOf(p);let productLocations=locationsOf(p);
+        if(productTags.length){progress.tagged_products+=1;for(const tag of productTags)uniqueTags.add(tag.toLowerCase())}
         if(productTags.length&&!productLocations.length&&p.id){try{const inventory=await sc(`/api/products/${encodeURIComponent(p.id)}/inventory_locations`);productLocations=(inventory.inventory_locations||[]).map(x=>({location:String(x.location||''),quantity:Number(x.quantity_available||0)}))}catch{}}
         const base={id:p.id||'',sku:String(p.sku||p.custom_catalogue_sku||p.catalogue_sku||''),upc:String(p.upc||p.barcode||''),title:String(p.title||p.product_title||''),image:imageOf(p),quantity_available:Number(p.quantity_available||0),tags:productTags,locations:productLocations,status:String(p.marketplace_status||p.status||''),source:'product'};
         for(const row of [base,...variants.map(v=>({...base,sku:String(v.sku||base.sku),upc:String(v.upc||v.barcode||base.upc)}))]){const key=`${row.id}|${row.sku}|${row.upc}`;if(!seen.has(key)){seen.add(key);products.push(row)}}
       }
-      progress.products=products.length;if(!rows.length||rows.length<100)break;
+      progress.products+=rows.length;progress.indexed_products=products.length;progress.unique_tags=uniqueTags.size;if(!rows.length||rows.length<100)break;
     }
     const now=new Date().toISOString();write(PRODUCT_INDEX,{updated_at:now,items:products},'tags');
 
-    progress.phase='batches';const batches=[];const batchSeen=new Set();
+    progress.phase='batches';const batches=activeBatches,batchSeen=new Set();
     for(let page=1;page<=500;page++){
       const data=await sc(`/api/manifests?page=${page}&page_size=100`);let manifests=data.manifests||[];if(!Array.isArray(manifests))manifests=manifests?[manifests]:[];
       for(const manifest of manifests){
@@ -78,9 +87,9 @@ async function buildIndexes(){
   }catch(error){buildError=error.message||'Refresh failed.';progress.phase='error';throw error}finally{building=false}
 }
 
-app.get('/api/status',async(req,res)=>{try{await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.3.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
+app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.4.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
 app.get('/api/tags',(req,res)=>{
-  const all=[...load(PRODUCT_INDEX).items,...load(BATCH_INDEX).items],byTag=new Map();
+  const all=currentItems(),byTag=new Map();
   for(const row of all){
     for(const raw of row.tags||[]){
       const tag=String(raw||'').trim();if(!tag)continue;const key=tag.toLowerCase();
@@ -91,7 +100,7 @@ app.get('/api/tags',(req,res)=>{
   const tag_options=[...byTag.values()].sort((a,b)=>natural(a.tag,b.tag));
   res.json({tags:tag_options.map(x=>x.tag),tag_options});
 });
-app.get('/api/search',(req,res)=>{const tag=String(req.query.tag||'').trim().toLowerCase(),source=String(req.query.source||'all');if(!tag)return res.status(400).json({error:'Enter a tag to search.'});let rows=[...load(PRODUCT_INDEX).items,...load(BATCH_INDEX).items].filter(x=>(x.tags||[]).some(t=>String(t).toLowerCase()===tag));if(source!=='all')rows=rows.filter(x=>x.source===source);rows.sort((a,b)=>natural(a.locations?.[0]?.location,b.locations?.[0]?.location)||natural(a.sku,b.sku));res.json({results:rows,count:rows.length,building})});
+app.get('/api/search',(req,res)=>{const tag=String(req.query.tag||'').trim().toLowerCase(),source=String(req.query.source||'all');if(!tag)return res.status(400).json({error:'Enter a tag to search.'});let rows=currentItems().filter(x=>(x.tags||[]).some(t=>String(t).toLowerCase()===tag));if(source!=='all')rows=rows.filter(x=>x.source===source);rows.sort((a,b)=>natural(a.locations?.[0]?.location,b.locations?.[0]?.location)||natural(a.sku,b.sku));res.json({results:rows,count:rows.length,building})});
 app.post('/api/refresh',(req,res)=>{if(!building)buildIndexes().catch(error=>console.error('Tag index refresh failed:',error.message));res.status(202).json({ok:true,building:true,message:building?'Refresh already running.':'Refresh started.'})});
 app.get('/api/product/:id/live',async(req,res)=>{try{const detail=await sc(`/api/products/${encodeURIComponent(req.params.id)}.json`),product=detail.product||detail||{};let inventory=[];try{inventory=(await sc(`/api/products/${encodeURIComponent(req.params.id)}/inventory_locations`)).inventory_locations||[]}catch{}res.json({product:{id:product.id,sku:product.sku||'',title:product.title||'',image:imageOf(product),tags:tagsOf(product),locations:inventory.map(x=>({location:x.location||'',quantity:Number(x.quantity_available||0)})),quantity_available:Number(product.quantity_available||0),status:String(product.marketplace_status||product.status||'')}})}catch(e){res.status(e.status||500).json({error:'Could not reload this product.',details:e.data||e.message})}});
 app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));

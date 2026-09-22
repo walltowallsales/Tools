@@ -12,7 +12,7 @@ const gateway = fs.readFileSync(path.join(__dirname, '..', 'gateway.js'), 'utf8'
 for (const slug of ['move', 'inventory', 'auction', 'tags', 'shipping', 'returns']) {
   if (!gateway.includes(`slug: '${slug}'`)) throw new Error(`Missing gateway route ${slug}`);
 }
-if (!gateway.includes("suite: '1.11.0'")) throw new Error('Suite version is not 1.11.0');
+if (!gateway.includes("suite: '1.12.0'")) throw new Error('Suite version is not 1.12.0');
 for (const name of expected) {
   const html = fs.readFileSync(path.join(__dirname, '..', 'modules', name, 'public', 'index.html'), 'utf8');
   if (!html.includes('class="suite-back" href="/"')) throw new Error(`Missing SellerChamp Tools return link in ${name}`);
