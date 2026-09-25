@@ -1,4 +1,4 @@
-# SellerChamp Tools Suite v1.22
+# SellerChamp Tools Suite v1.23
 
 One Render service and one persistent disk containing six independently routed modules:
 
@@ -6,7 +6,7 @@ One Render service and one persistent disk containing six independently routed m
 2. **Item - Inventory Verify** (`/inventory/`) — Inventory Checker v1.5
 3. **Item - Local Auction** (`/auction/`) — Auction Inventory v1.13
 4. **Item - Sort Tags by Location** (`/tags/`) — Tag Location Sorter v1.9
-5. **Shipping - Pick List** (`/shipping/`) — Pick Batch v30
+5. **Shipping - Pick List** (`/shipping/`) — Pick Batch v31
 6. **Orders - Returns** (`/returns/`) — Returns v2.48
 
 The original module source is kept in separate folders under `modules/`. The gateway gives each module its own path and process, so module-specific changes remain isolated. Shared environment settings are normalized by the gateway. One suite-level PIN login covers the dashboard and all six modules for 30 days.
@@ -72,6 +72,6 @@ modules/returns
 
 The gateway should need changes only when adding/removing a module or changing a module's displayed name/path.
 
-## Pick Batch v30
+## Pick Batch v31
 
-Use **Forklift Later — Skip for Now** for rack items. The shelf pass advances to the next normal item. Outstanding forklift stops remain in the active batch and are listed together under **Forklift Pass**. Open each stop there and complete it in the pick guide; the batch cannot archive until all forklift stops are picked. Freight remains a separate shipping follow-up workflow.
+Use **Skip** (centered below Back and Next) for rack items. The shelf pass advances to the next normal item. Outstanding forklift stops remain in the active batch and are listed together under **Forklift Pass**. Open each stop there and complete it in the pick guide; the batch cannot archive until all forklift stops are picked. Freight remains a separate shipping follow-up workflow.

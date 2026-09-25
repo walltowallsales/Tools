@@ -109,6 +109,7 @@
 @media(max-width:600px){.freightBody{grid-template-columns:76px 1fr;padding:13px}.freightBody img{width:76px;height:76px}.freightActions{grid-template-columns:1fr}.freightActions .completeFreight{grid-column:auto}.freightHeading{display:block}.freightHeading button{width:100%;margin-bottom:12px}}
 
 /* v30 forklift pass */
-.forkliftBtn{display:block;width:100%;min-height:58px;margin:12px 0;background:#3b5b87;border:2px solid #274467;color:#fff;font-size:18px;font-weight:900}
+.pickerNav .forkliftBtn{grid-column:1/-1;justify-self:center;width:min(48%,240px);min-height:52px;margin:0;background:#3b5b87;border:2px solid #274467;color:#fff;font-size:18px;font-weight:900}
+@media(max-width:600px){.pickerNav .forkliftBtn{width:48%;min-width:130px}}
 .forkliftQueue{margin:16px 0;padding:18px;border:2px solid #3b5b87;border-radius:16px;background:#edf4ff}.forkliftQueue h2{margin:0 0 6px}.forkliftQueue p{color:#475569;margin:0 0 12px}
 .forkliftItem{display:grid;gap:7px;padding:13px;margin:9px 0;border:1px solid #b8c9e1;border-radius:12px;background:#fff}.forkliftItem strong{font-size:20px}.forkliftItem span{color:#475569}.forkliftItem button{background:#3b5b87;color:#fff;min-height:44px;font-weight:800}

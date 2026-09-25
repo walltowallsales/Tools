@@ -103,7 +103,7 @@ $('#forkliftBtn').onclick=async()=>{
     const next=normalNext(idx);
     if(next<0)await finishPickPass();
     else{idx=next;await saveIndex();renderPick();window.scrollTo({top:0,left:0,behavior:'auto'})}
-  }catch(e){alert(e.message)}finally{btn.disabled=false;btn.textContent='🏗️ Forklift Later — Skip for Now'}
+  }catch(e){alert(e.message)}finally{btn.disabled=false;btn.textContent='Skip'}
 };
 $('#confirmQty').onchange=()=>$('#pickError').classList.add('hidden');
 $('#confirmOnHand').onchange=()=>$('#pickError').classList.add('hidden');
