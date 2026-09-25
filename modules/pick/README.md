@@ -97,3 +97,5 @@ If the quantity on hand at the current location is wrong, tap **Quantity is inco
 - v28: Fixes Create Pick Batch hanging on “Creating snapshot…” inside the combined suite by preserving POST request bodies as the gateway forwards them to the Pick module.
 
 - v29: Adds Mark as Freight / Defer with Packed and Not Yet Packed choices, next-day follow-up, overdue highlighting, an Outstanding Freight queue, Mark Packed, Pickup Scheduled, Mark Shipped / Complete, Return to Pick List, and Cancel Tracking. Freight records persist on the existing pick-data disk and prevent duplicate picking in future batches.
+
+- v32: Freight wording/layout update: Freight / Waiting is below Skip; choices are Picked — Already Packed and Picked — Needs to be Packed; Never mind is now Cancel. Behavior unchanged.

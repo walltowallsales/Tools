@@ -1,4 +1,4 @@
-# SellerChamp Tools Suite v1.23
+# SellerChamp Tools Suite v1.24
 
 One Render service and one persistent disk containing six independently routed modules:
 
@@ -75,3 +75,9 @@ The gateway should need changes only when adding/removing a module or changing a
 ## Pick Batch v31
 
 Use **Skip** (centered below Back and Next) for rack items. The shelf pass advances to the next normal item. Outstanding forklift stops remain in the active batch and are listed together under **Forklift Pass**. Open each stop there and complete it in the pick guide; the batch cannot archive until all forklift stops are picked. Freight remains a separate shipping follow-up workflow.
+
+## v1.24
+- Pick List Version 32: renamed freight choices to `Picked — Already Packed` and `Picked — Needs to be Packed`.
+- Renamed `Never mind` to `Cancel`.
+- Renamed the main freight button to `Freight / Waiting` and moved it below the centered `Skip` button.
+- Freight workflow behavior is unchanged.

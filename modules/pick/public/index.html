@@ -8,7 +8,7 @@
 </head>
 <body>
 <a class="suite-back" href="/">← SellerChamp Tools</a>
-<div class="versionBadge">Version 31</div>
+<div class="versionBadge">Version 32</div>
 <header><div><h1>Pick Batches</h1><p>Frozen SellerChamp picking sessions</p></div><button id="homeBtn" class="ghost hidden">Home</button></header>
 <main>
 <section id="pinView" class="card hidden"><h2>Enter PIN</h2><input id="pinInput" inputmode="numeric" type="password" placeholder="PIN"><button id="pinBtn">Unlock</button><p id="pinErr" class="error"></p></section>
@@ -56,18 +56,18 @@
     <div class="facts"><div><span>Condition</span><strong id="pickCondition"></strong></div><div class="onHandFact"><span>QTY LEFT</span><strong id="pickOnHand"></strong><label id="onHandVerifyWrap" class="inlineVerify"><input id="confirmOnHand" type="checkbox"> <span id="onHandLabel">Verified</span></label><button id="correctQtyBtn" class="qtyAdjust" type="button">Adjust Quantity</button><div id="correctionPanel" class="correctionPanel hidden"><label for="actualQty">Actual quantity on hand</label><div class="correctionRow"><input id="actualQty" inputmode="numeric" type="number" min="0" step="1"><button id="updateQtyBtn" class="primary" type="button">Update SellerChamp</button></div><div id="correctionMsg" class="correctionMsg"></div></div></div></div>
   </div>
   <label id="multiConfirm" class="confirm bottomConfirm hidden"><input id="confirmQty" type="checkbox"> <span id="confirmLabel">I picked the full quantity</span></label>
-  <button id="freightBtn" class="freightBtn" type="button">🚚 Mark as Freight / Defer</button>
+  <div id="pickError" class="alert hidden"></div>
+  <div class="pickerNav"><button id="backBtn">← Back</button><button id="nextBtn" class="primary">Next →</button><button id="forkliftBtn" class="forkliftBtn" type="button">Skip</button></div>
+  <button id="freightBtn" class="freightBtn" type="button">🚚 Freight / Waiting</button>
   <div id="freightPanel" class="freightPanel hidden">
     <h3>Move this item to Outstanding Freight?</h3>
     <p>It will leave the normal pick guide and will not appear in a later pick batch.</p>
     <label>Optional note<input id="freightNote" type="text" placeholder="Pickup details or special instructions"></label>
-    <button id="freightPackedBtn" class="freightChoice packed" type="button">Packed — Awaiting Pickup</button>
-    <button id="freightNotPackedBtn" class="freightChoice" type="button">Not Yet Packed — Defer</button>
-    <button id="freightCancelBtn" class="ghost" type="button">Never mind</button>
+    <button id="freightPackedBtn" class="freightChoice packed" type="button">Picked — Already Packed</button>
+    <button id="freightNotPackedBtn" class="freightChoice" type="button">Picked — Needs to be Packed</button>
+    <button id="freightCancelBtn" class="ghost" type="button">Cancel</button>
     <div id="freightError" class="error"></div>
   </div>
-  <div id="pickError" class="alert hidden"></div>
-  <div class="pickerNav"><button id="backBtn">← Back</button><button id="nextBtn" class="primary">Next →</button><button id="forkliftBtn" class="forkliftBtn" type="button">Skip</button></div>
   <div class="externalLinks">
     <a id="ebayListingBtn" class="externalBtn hidden" target="_blank" rel="noopener noreferrer">Open eBay Listing</a>
     <a id="sellerChampProductBtn" class="externalBtn hidden" target="_blank" rel="noopener noreferrer">Open SellerChamp Product</a>
