@@ -15,14 +15,14 @@ fs.mkdirSync(DATA_DIR,{recursive:true});
 app.use(express.json({limit:'100kb'}));
 app.use(express.static(path.join(__dirname,'public')));
 
-const REQUEST_GAP_MS=Number(process.env.SC_REQUEST_GAP_MS||750),RETRY_BASE_MS=Number(process.env.SC_RETRY_BASE_MS||2000);let scQueue=Promise.resolve(),lastScAt=0;
+const REQUEST_GAP_MS=Number(process.env.SC_REQUEST_GAP_MS||2500),RETRY_BASE_MS=Number(process.env.SC_RETRY_BASE_MS||60000);let scQueue=Promise.resolve(),lastScAt=0;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function scDirect(endpoint,options={}){
   for(let attempt=0;attempt<7;attempt++){
     const wait=Math.max(0,REQUEST_GAP_MS-(Date.now()-lastScAt));if(wait)await sleep(wait);lastScAt=Date.now();
     const response=await fetch(SC_BASE+endpoint,{...options,headers:{Token:TOKEN,'Content-Type':'application/json',...(options.headers||{})}});
     const text=await response.text();let data={};try{data=text?JSON.parse(text):{}}catch{data={raw:text}}
-    if(response.status===429){const retryDelay=Math.min(30000,RETRY_BASE_MS*Math.pow(1.7,attempt));progress.rate_limited=(progress.rate_limited||0)+1;progress.waiting_seconds=Math.ceil(retryDelay/1000);await sleep(retryDelay);continue}
+    if(response.status===429){const retryDelay=Math.max(Number(response.headers.get('retry-after')||0)*1000,RETRY_BASE_MS);progress.rate_limited=(progress.rate_limited||0)+1;progress.waiting_seconds=Math.ceil(retryDelay/1000);await sleep(retryDelay);continue}
     progress.waiting_seconds=0;
     if(!response.ok){const error=new Error(`SellerChamp returned ${response.status}`);error.status=response.status;error.data=data;throw error}return data;
   }
@@ -39,6 +39,7 @@ function tagsOf(row){
   return found;
 }
 function imageOf(p){return p?.primary_image||p?.primary_image_url||p?.image_url||p?.image||p?.product_images?.[0]?.large_image_url||p?.product_images?.[0]?.image_url||''}
+function titlesOf(p){return [...new Set([p?.title,p?.product_title,p?.marketplace_title,p?.listing_title,p?.ebay_title,p?.product?.title,p?.product_listing?.title,p?.master_product?.title,...(Array.isArray(p?.variants)?p.variants.flatMap(v=>[v.title,v.product_title,v.listing_title]):[]),...(Array.isArray(p?.product_listings)?p.product_listings.map(v=>v.title||v.product_title):[])].filter(x=>typeof x==='string'&&x.trim()))]}
 function locationsOf(p){const rows=(Array.isArray(p?.inventory_locations)?p.inventory_locations:[]).map(x=>({location:String(x.location||''),quantity:Number(x.quantity_available||0)}));if(!rows.length&&(p?.item_location||p?.bin_location||p?.warehouse_location))rows.push({location:String(p.item_location||p.bin_location||p.warehouse_location),quantity:Number(p.quantity_available||0)});return rows}
 function load(file){try{const data=JSON.parse(fs.readFileSync(file,'utf8'));return {items:Array.isArray(data.items)?data.items:[],updated_at:data.updated_at||null}}catch{return {items:[],updated_at:null}}}
 function write(file,data,suffix){const temporary=`${file}.${suffix}.tmp`;fs.writeFileSync(temporary,JSON.stringify(data));fs.renameSync(temporary,file)}
@@ -82,8 +83,7 @@ async function buildIndexes(){
         const variants=Array.isArray(p.variants)?p.variants:[];
         const productTags=tagsOf(p);let productLocations=locationsOf(p);
         if(productTags.length){progress.tagged_products+=1;for(const tag of productTags)uniqueTags.add(tag.toLowerCase())}
-        if(productTags.length&&!productLocations.length&&p.id){try{const inventory=await sc(`/api/products/${encodeURIComponent(p.id)}/inventory_locations`);productLocations=(inventory.inventory_locations||[]).map(x=>({location:String(x.location||''),quantity:Number(x.quantity_available||0)}))}catch{}}
-        const base=applyTagOverrides({id:p.id||'',sku:String(p.sku||p.custom_catalogue_sku||p.catalogue_sku||''),upc:String(p.upc||p.barcode||''),title:String(p.title||p.product_title||''),image:imageOf(p),quantity_available:Number(p.quantity_available||0),reserve_quantity:Number(p.reserve_quantity||0),reserve_quantity_location:String(p.reserve_quantity_location||''),reserve_live_loaded:false,tags:productTags,locations:productLocations,status:String(p.marketplace_status||p.status||''),source:'product'});
+        const base=applyTagOverrides({id:p.id||'',sku:String(p.sku||p.custom_catalogue_sku||p.catalogue_sku||''),upc:String(p.upc||p.barcode||''),title:String(titlesOf(p)[0]||''),search_titles:titlesOf(p),image:imageOf(p),quantity_available:Number(p.quantity_available||0),reserve_quantity:Number(p.reserve_quantity||0),reserve_quantity_location:String(p.reserve_quantity_location||''),reserve_live_loaded:false,tags:productTags,locations:productLocations,status:String(p.marketplace_status||p.status||''),source:'product'});
         for(const row of [base,...variants.map(v=>({...base,sku:String(v.sku||base.sku),upc:String(v.upc||v.barcode||base.upc)}))]){const key=`${row.id}|${row.sku}|${row.upc}`;if(!seen.has(key)){seen.add(key);products.push(row)}}
       }
       progress.products+=rows.length;progress.indexed_products=products.length;progress.unique_tags=uniqueTags.size;if(!rows.length||rows.length<100)break;
@@ -97,17 +97,21 @@ async function buildIndexes(){
         if(!manifest?.id)continue;
         for(let listingPage=1;listingPage<=100;listingPage++){
           const listingData=await sc(`/api/manifests/${encodeURIComponent(manifest.id)}/product_listings?page=${listingPage}&page_size=100`);let listings=listingData.product_listings||[];if(!Array.isArray(listings))listings=listings?[listings]:[];
-          for(const row of listings){const tags=tagsOf(row);const key=`${manifest.id}|${row.id||row.sku}`;if(batchSeen.has(key))continue;batchSeen.add(key);batches.push({id:row.id||'',product_id:row.product_id||'',manifest_id:manifest.id,manifest_name:manifest.name||'',sku:String(row.sku||row.custom_catalogue_sku||row.catalogue_sku||''),upc:String(row.upc||row.barcode||''),title:String(row.title||''),image:imageOf(row),quantity_available:Number(row.quantity_available??row.quantity??0),tags,locations:[{location:String(row.location||row.item_location||''),quantity:Number(row.quantity_available??row.quantity??0)}],status:String(manifest.status||''),source:'batch',url:`https://app.sellerchamp.com/manifests/${encodeURIComponent(manifest.id)}?product_listing%5Bquery%5D=${encodeURIComponent(row.sku||'')}`});progress.batches=batches.length}
+          for(const row of listings){const tags=tagsOf(row);const key=`${manifest.id}|${row.id||row.sku}`;if(batchSeen.has(key))continue;batchSeen.add(key);batches.push({id:row.id||'',product_id:row.product_id||'',manifest_id:manifest.id,manifest_name:manifest.name||'',sku:String(row.sku||row.custom_catalogue_sku||row.catalogue_sku||''),upc:String(row.upc||row.barcode||''),title:String(titlesOf(row)[0]||''),search_titles:titlesOf(row),image:imageOf(row),quantity_available:Number(row.quantity_available??row.quantity??0),tags,locations:[{location:String(row.location||row.item_location||''),quantity:Number(row.quantity_available??row.quantity??0)}],status:String(manifest.status||''),source:'batch',url:`https://app.sellerchamp.com/manifests/${encodeURIComponent(manifest.id)}?product_listing%5Bquery%5D=${encodeURIComponent(row.sku||'')}`});progress.batches=batches.length}
           if(listings.length<100)break;
         }
+        // Publish completed manifests so searches work while a long rebuild continues.
+        if(!fs.existsSync(BATCH_INDEX)||!JSON.parse(fs.readFileSync(BATCH_INDEX,'utf8')).includes_listing_titles)
+          write(BATCH_INDEX,{updated_at:new Date().toISOString(),includes_untagged:true,includes_listing_titles:false,items:batches},'partial');
       }
       if(manifests.length<100)break;
     }
-    write(BATCH_INDEX,{updated_at:now,includes_untagged:true,items:batches},'tags');progress.phase='complete';
+    write(BATCH_INDEX,{updated_at:new Date().toISOString(),includes_untagged:true,includes_listing_titles:true,items:batches},'tags');progress.phase='complete';
   }catch(error){buildError=error.message||'Refresh failed.';progress.phase='error';throw error}finally{building=false}
 }
 
-app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.9.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
+app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.10.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
+app.get('/api/index-status',(req,res)=>res.json({building,error:buildError,progress}));
 app.get('/api/tags',(req,res)=>{
   const all=currentItems(),byTag=new Map();
   for(const row of all){
@@ -176,5 +180,5 @@ app.post('/api/product/:id/end-listing',async(req,res)=>{try{
   return res.status(409).json({error:`SellerChamp accepted the request, but still reports ${String(product?.status||'unknown').toUpperCase()}. No verified success was reported.`});
 }catch(e){res.status(e.status||500).json({error:'SellerChamp could not end this listing.',details:e.data||e.message})}});
 app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
-app.listen(PORT,()=>{console.log(`SellerChamp Tag Location Sorter running on ${PORT}`);const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);let completeBatchIndex=false;try{completeBatchIndex=JSON.parse(fs.readFileSync(BATCH_INDEX,'utf8')).includes_untagged===true}catch{}if(!p.items.length||!b.items.length||!completeBatchIndex)buildIndexes().catch(error=>console.error('Initial tag index refresh failed:',error.message))});
+app.listen(PORT,()=>{console.log(`SellerChamp Tag Location Sorter running on ${PORT}`);const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);let completeBatchIndex=false;try{const saved=JSON.parse(fs.readFileSync(BATCH_INDEX,'utf8'));completeBatchIndex=saved.includes_untagged===true&&saved.includes_listing_titles===true}catch{}if(!p.items.length||!b.items.length||!completeBatchIndex)buildIndexes().catch(error=>console.error('Initial tag index refresh failed:',error.message))});
 setInterval(()=>{if(!building)buildIndexes().catch(error=>console.error('Scheduled tag index refresh failed:',error.message))},24*60*60*1000).unref();

@@ -188,4 +188,4 @@ Field 1 now supports product-title search. Exact SKU/UPC/ASIN lookup remains fir
 
 ## v2.32.0
 Fixes partial-title search. SellerChamp's Products endpoint did not reliably filter the `query`/`title` parameters used in v2.31. The app now pages through Products and performs a case-insensitive partial-title match server-side, returning up to 30 choices. Exact SKU/barcode lookup remains unchanged and fast.
-# v2.39: Partial search includes Product and marketplace listing titles from the complete shared Batch index, including active and not-submitted items. Selecting one resolves its exact SKU live rather than using a stale indexed inventory value.
+# v2.40: Partial search includes Product and marketplace listing titles from the complete shared Batch index, including active and not-submitted items. Selecting one resolves its exact SKU live rather than using a stale indexed inventory value.

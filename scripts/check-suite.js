@@ -12,7 +12,7 @@ const gateway = fs.readFileSync(path.join(__dirname, '..', 'gateway.js'), 'utf8'
 for (const slug of ['move', 'inventory', 'auction', 'tags', 'shipping', 'returns']) {
   if (!gateway.includes(`slug: '${slug}'`)) throw new Error(`Missing gateway route ${slug}`);
 }
-if (!gateway.includes("suite: '1.20.0'")) throw new Error('Suite version is not 1.20.0');
+if (!gateway.includes("suite: '1.21.0'")) throw new Error('Suite version is not 1.21.0');
 if (gateway.includes("app.use(express.json")) throw new Error('Gateway must not consume proxied JSON request bodies');
 for (const name of expected) {
   const html = fs.readFileSync(path.join(__dirname, '..', 'modules', name, 'public', 'index.html'), 'utf8');

@@ -116,7 +116,7 @@ function loadSearchIndex() {
 }
 
 function listingIndexReady() {
-  try { return JSON.parse(fs.readFileSync(BATCH_INDEX_FILE, 'utf8')).includes_untagged === true; }
+  try { const index=JSON.parse(fs.readFileSync(BATCH_INDEX_FILE, 'utf8'));return index.includes_untagged === true && index.includes_listing_titles === true; }
   catch { return false; }
 }
 
@@ -559,17 +559,23 @@ function applyManifestMatch(product, match) {
 
 app.get('/api/status', async (req, res) => {
   try {
-    const data = await scFetch('/api/marketplace_accounts');
+    let sharedStatus={};
+    if(process.env.SHARED_INDEX_OWNER==='tags'){
+      try{const response=await fetch(`${process.env.TAG_SORT_INTERNAL_URL||'http://127.0.0.1:3106'}/api/index-status`);if(response.ok)sharedStatus=await response.json()}catch{}
+    }
     res.json({
       ok: true,
-      version: '2.39.0',
+      version: '2.40.0',
       pinRequired: !!APP_PIN,
-      accounts: (data.marketplace_accounts || []).map(a => ({ id: a.id, name: a.name, marketplace: a.marketplace })),
+      accounts: [],
       search_index: {
         count: searchIndex.length,
         updated_at: searchIndexUpdatedAt,
-        building: searchIndexBuilding,
-        error: searchIndexError,
+        building: searchIndexBuilding||!!sharedStatus.building,
+        phase: sharedStatus.progress?.phase||'',
+        indexed_listings: sharedStatus.progress?.batches||0,
+        rate_limited: sharedStatus.progress?.rate_limited||0,
+        error: sharedStatus.error||searchIndexError,
         listing_index_ready: listingIndexReady()
       }
     });

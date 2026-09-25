@@ -29,7 +29,7 @@ function busy(btn,on,label) { if(on){btn.dataset.old=btn.textContent;btn.textCon
 async function checkStatus(){
   try{
     const data=await api('/api/status');
-    $('connection').textContent='SellerChamp connected'; if($('appVersion')) $('appVersion').textContent='v'+(data.version||'2.39.0'); $('connection').className='status ok'; $('pinCard').classList.add('hidden');
+    $('connection').textContent='SellerChamp connected'; if($('appVersion')) $('appVersion').textContent='v'+(data.version||'2.40.0'); $('connection').className='status ok'; $('pinCard').classList.add('hidden');
     showIndexStatus(data.search_index||{});
   }catch(e){
     $('connection').textContent=e.message.includes('PIN')?'PIN required':'Not connected'; $('connection').className='status bad';
@@ -39,7 +39,8 @@ async function checkStatus(){
 
 function showIndexStatus(index){
   if(!$('indexStatus'))return;
-  if(index.listing_index_ready===false){$('indexStatus').textContent=`Updating listing-title search… ${Number(index.count||0).toLocaleString()} Product items currently available. Try title searches again once this finishes.`;return;}
+  if(index.error){$('indexStatus').textContent=`Listing-title index failed: ${index.error} Tap Refresh Search to retry.`;return;}
+  if(index.listing_index_ready===false){$('indexStatus').textContent=index.building?`Indexing SellerChamp titles… ${Number(index.count||0).toLocaleString()} Products, ${Number(index.indexed_listings||0).toLocaleString()} listings${index.rate_limited?' · waiting on SellerChamp rate limit':''}. Searches may be incomplete until finished.`:'Listing-title index is incomplete. Tap Refresh Search to retry.';return;}
   if(index.building){$('indexStatus').textContent=`Building fast search… ${Number(index.count||0).toLocaleString()} saved items available`;return;}
   if(index.count){
     const when=index.updated_at?new Date(index.updated_at).toLocaleString():'';
