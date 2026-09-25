@@ -14,6 +14,7 @@ A web app that creates a frozen snapshot of current SellerChamp orders, generate
 - Sorts pick stops naturally by location.
 - Printable portrait pick list: Location, Qty, Image, SKU, Title, Condition, On Hand, Order(s).
 - Dynamic guide with Back / Next, progress tracking, and persistent completion state.
+- Freight items can be moved out of the normal pick guide into a persistent Outstanding Freight queue. They remain excluded from later pick batches until completed, cancelled, or returned to the original batch.
 - When quantity to pick is greater than 1, the employee must check **I picked all N** at the bottom of the page, directly above Next. Otherwise the app displays **Did you pick the full quantity?**
 - Deleting a batch requires the delete PIN. Default: `8880`.
 
@@ -94,3 +95,5 @@ If the quantity on hand at the current location is wrong, tap **Quantity is inco
 - v27: Archived item rows include Add Back to Inventory and Update Inventory. Add Back returns some or all picked units to the same SellerChamp location; Update Inventory sets an exact quantity. Changes are recorded in the batch history.
 
 - v28: Fixes Create Pick Batch hanging on “Creating snapshot…” inside the combined suite by preserving POST request bodies as the gateway forwards them to the Pick module.
+
+- v29: Adds Mark as Freight / Defer with Packed and Not Yet Packed choices, next-day follow-up, overdue highlighting, an Outstanding Freight queue, Mark Packed, Pickup Scheduled, Mark Shipped / Complete, Return to Pick List, and Cancel Tracking. Freight records persist on the existing pick-data disk and prevent duplicate picking in future batches.

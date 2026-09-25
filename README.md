@@ -1,4 +1,4 @@
-# SellerChamp Tools Suite v1.17
+# SellerChamp Tools Suite v1.18
 
 One Render service and one persistent disk containing six independently routed modules:
 
@@ -6,12 +6,12 @@ One Render service and one persistent disk containing six independently routed m
 2. **Item - Inventory Verify** (`/inventory/`) — Inventory Checker v1.5
 3. **Item - Local Auction** (`/auction/`) — Auction Inventory v1.13
 4. **Item - Sort Tags by Location** (`/tags/`) — Tag Location Sorter v1.8
-5. **Shipping - Pick List** (`/shipping/`) — Pick Batch v28
+5. **Shipping - Pick List** (`/shipping/`) — Pick Batch v29
 6. **Orders - Returns** (`/returns/`) — Returns v2.48
 
 The original module source is kept in separate folders under `modules/`. The gateway gives each module its own path and process, so module-specific changes remain isolated. Shared environment settings are normalized by the gateway. One suite-level PIN login covers the dashboard and all six modules for 30 days.
 
-Version 1.17 prevents reserve hydration from blocking tag actions, retries delayed SellerChamp tag confirmation, and remembers accepted removals for 3 days. Version 1.15 added live reserve values and verified reserve updates.
+Version 1.18 adds a persistent freight workflow to Shipping - Pick List. Freight items leave the normal pick guide, remain excluded from later pick batches, and appear in an Outstanding Freight queue until completed, cancelled, or returned to the original batch. Version 1.17 improved tag removal reliability.
 
 ## Deploy on Render
 

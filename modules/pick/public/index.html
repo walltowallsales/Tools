@@ -8,7 +8,7 @@
 </head>
 <body>
 <a class="suite-back" href="/">← SellerChamp Tools</a>
-<div class="versionBadge">Version 28</div>
+<div class="versionBadge">Version 29</div>
 <header><div><h1>Pick Batches</h1><p>Frozen SellerChamp picking sessions</p></div><button id="homeBtn" class="ghost hidden">Home</button></header>
 <main>
 <section id="pinView" class="card hidden"><h2>Enter PIN</h2><input id="pinInput" inputmode="numeric" type="password" placeholder="PIN"><button id="pinBtn">Unlock</button><p id="pinErr" class="error"></p></section>
@@ -20,6 +20,7 @@
     <a class="ebayOrdersBtn" href="https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT" target="_blank" rel="noopener noreferrer">Ebay Orders</a>
     <p id="homeError" class="error"></p>
   </div>
+  <button id="freightQueueBtn" class="freightQueueBtn" type="button">🚚 Outstanding Freight <span id="freightBadge">0</span></button>
   <h2>Active Pick Batches</h2><div id="batchList" class="batchList"></div>
   <details id="archiveSection" class="archiveSection">
     <summary>Archived Pick Batches <span id="archiveCount"></span></summary>
@@ -29,6 +30,12 @@
     <summary>Recently Deleted <span id="deletedCount"></span></summary>
     <div id="deletedList" class="batchList archiveList"></div>
   </details>
+</section>
+<section id="freightView" class="hidden">
+  <div class="freightHeading"><div><h2>Outstanding Freight</h2><p>Freight stays here until it is shipped, cancelled, or returned to its original pick batch.</p></div><button id="freightRefreshBtn" type="button">Refresh</button></div>
+  <div id="freightSummary" class="freightSummary"></div>
+  <div id="freightList" class="freightList"></div>
+  <details class="archiveSection"><summary>Completed / Cancelled Freight <span id="freightHistoryCount"></span></summary><div id="freightHistory" class="freightList"></div></details>
 </section>
 <section id="batchView" class="hidden">
   <div id="batchHead" class="card"></div>
@@ -48,6 +55,16 @@
     <div class="facts"><div><span>Condition</span><strong id="pickCondition"></strong></div><div class="onHandFact"><span>QTY LEFT</span><strong id="pickOnHand"></strong><label id="onHandVerifyWrap" class="inlineVerify"><input id="confirmOnHand" type="checkbox"> <span id="onHandLabel">Verified</span></label><button id="correctQtyBtn" class="qtyAdjust" type="button">Adjust Quantity</button><div id="correctionPanel" class="correctionPanel hidden"><label for="actualQty">Actual quantity on hand</label><div class="correctionRow"><input id="actualQty" inputmode="numeric" type="number" min="0" step="1"><button id="updateQtyBtn" class="primary" type="button">Update SellerChamp</button></div><div id="correctionMsg" class="correctionMsg"></div></div></div></div>
   </div>
   <label id="multiConfirm" class="confirm bottomConfirm hidden"><input id="confirmQty" type="checkbox"> <span id="confirmLabel">I picked the full quantity</span></label>
+  <button id="freightBtn" class="freightBtn" type="button">🚚 Mark as Freight / Defer</button>
+  <div id="freightPanel" class="freightPanel hidden">
+    <h3>Move this item to Outstanding Freight?</h3>
+    <p>It will leave the normal pick guide and will not appear in a later pick batch.</p>
+    <label>Optional note<input id="freightNote" type="text" placeholder="Pickup details or special instructions"></label>
+    <button id="freightPackedBtn" class="freightChoice packed" type="button">Packed — Awaiting Pickup</button>
+    <button id="freightNotPackedBtn" class="freightChoice" type="button">Not Yet Packed — Defer</button>
+    <button id="freightCancelBtn" class="ghost" type="button">Never mind</button>
+    <div id="freightError" class="error"></div>
+  </div>
   <div id="pickError" class="alert hidden"></div>
   <div class="pickerNav"><button id="backBtn">← Back</button><button id="nextBtn" class="primary">Next →</button></div>
   <div class="externalLinks">

@@ -17,11 +17,16 @@ const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data
 const DB_FILE = path.join(DATA_DIR, 'pick-batches.json');
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
-if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({ batches: [] }, null, 2));
+if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({ batches: [], freightItems: [] }, null, 2));
 
 function readDb() {
-  try { return JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); }
-  catch { return { batches: [] }; }
+  try {
+    const db=JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    if(!Array.isArray(db.batches))db.batches=[];
+    if(!Array.isArray(db.freightItems))db.freightItems=[];
+    return db;
+  }
+  catch { return { batches: [], freightItems: [] }; }
 }
 function writeDb(db) {
   const tmp = DB_FILE + '.tmp';
@@ -33,6 +38,16 @@ function nowIso() { return new Date().toISOString(); }
 function n(v, fallback=0) { const x = Number(v); return Number.isFinite(x) ? x : fallback; }
 function str(v, fallback='') { return v == null ? fallback : String(v); }
 function naturalCompare(a,b) { return str(a).localeCompare(str(b), undefined, { numeric:true, sensitivity:'base' }); }
+function lineResolved(line) { return !!line?.picked || !!line?.freightId; }
+function freightOrderIds(db) {
+  return (db.freightItems || []).filter(f=>f.status!=='cancelled').flatMap(f=>f.orderIds || []);
+}
+function usedOrderIds(db) {
+  return new Set([
+    ...db.batches.filter(b=>b.status!=='deleted').flatMap(b=>b.orderIds || []),
+    ...freightOrderIds(db)
+  ].map(str));
+}
 
 function requirePin(req, res, next) {
   if (!APP_PIN) return next();
@@ -290,7 +305,8 @@ function summarize(batch) {
     orderCount: batch.orderIds.length,
     uniqueStops: batch.lines.length,
     totalUnits: batch.lines.reduce((s,l)=>s+n(l.quantityToPick),0),
-    pickedStops: batch.lines.filter(l=>l.picked).length,
+    pickedStops: batch.lines.filter(lineResolved).length,
+    freightStops: batch.lines.filter(l=>!!l.freightId).length,
     currentIndex: batch.currentIndex || 0
   };
 }
@@ -300,7 +316,7 @@ app.get('/api/health', (req,res)=>res.json({ ok:true, sellerChampConfigured:!!TO
 app.get('/api/preview', async (req,res) => {
   try {
     const db = readDb();
-    const used = new Set(db.batches.filter(b=>b.status!=='deleted').flatMap(b => b.orderIds || []));
+    const used = usedOrderIds(db);
     const orders = await fetchAllQualifyingOrders();
     const fresh = orders.filter(o => !used.has(str(o.id)));
     res.json({ qualifyingOrders: orders.length, newOrders: fresh.length, excludedAlreadyBatched: orders.length-fresh.length, totalUnits: fresh.reduce((s,o)=>s+(o.items||[]).reduce((x,i)=>x+n(i.quantity),0),0) });
@@ -311,7 +327,7 @@ app.post('/api/batches', async (req,res) => {
   try {
     productCache.clear();
     const db = readDb();
-    const used = new Set(db.batches.filter(b=>b.status!=='deleted').flatMap(b => b.orderIds || []));
+    const used = usedOrderIds(db);
     const orders = (await fetchAllQualifyingOrders()).filter(o => !used.has(str(o.id)));
     if (!orders.length) return res.status(409).json({ error:'There are no new qualifying orders to add to a pick batch.' });
     const lines = await buildSnapshot(orders);
@@ -351,8 +367,76 @@ app.patch('/api/batches/:id/lines/:lineId', (req,res)=> {
   const line=b.lines.find(x=>x.id===req.params.lineId); if(!line) return res.status(404).json({error:'Line not found'});
   if (typeof req.body?.picked === 'boolean') { line.picked=req.body.picked; line.pickedAt=line.picked?nowIso():null; }
   if (typeof req.body?.onHandVerified === 'boolean') line.onHandVerified=req.body.onHandVerified;
-  if (b.lines.every(x=>x.picked)) b.status='completed'; else if (b.lines.some(x=>x.picked)) b.status='in_progress';
+  if (b.lines.every(lineResolved)) b.status='completed'; else if (b.lines.some(lineResolved)) b.status='in_progress';
   writeDb(db); res.json({line,batch:summarize(b)});
+});
+
+function freightView(f) {
+  return {
+    ...f,
+    ageDays: Math.max(0, Math.floor((Date.now()-new Date(f.createdAt).getTime())/86400000)),
+    overdue: f.status==='outstanding' && !!f.followUpAt && new Date(f.followUpAt).getTime()<Date.now()
+  };
+}
+
+app.get('/api/freight', (req,res)=> {
+  const db=readDb();
+  const rank={outstanding:0,completed:1,cancelled:2};
+  const freight=(db.freightItems||[]).map(freightView).sort((a,b)=>(rank[a.status]??9)-(rank[b.status]??9)||new Date(a.followUpAt||a.createdAt)-new Date(b.followUpAt||b.createdAt));
+  res.json({
+    freight,
+    outstandingCount:freight.filter(f=>f.status==='outstanding').length,
+    overdueCount:freight.filter(f=>f.overdue).length
+  });
+});
+
+app.post('/api/batches/:id/lines/:lineId/freight', (req,res)=> {
+  const db=readDb(),batch=db.batches.find(x=>x.id===req.params.id);
+  if(!batch)return res.status(404).json({error:'Batch not found'});
+  const line=batch.lines.find(x=>x.id===req.params.lineId);
+  if(!line)return res.status(404).json({error:'Line not found'});
+  if(line.freightId)return res.status(409).json({error:'This pick stop is already in Outstanding Freight.'});
+  const stage=req.body?.stage;
+  if(!['packed','not_packed'].includes(stage))return res.status(400).json({error:'Choose whether the freight item is packed or not yet packed.'});
+  const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);tomorrow.setHours(9,0,0,0);
+  const freight={
+    id:uid(),batchId:batch.id,batchName:batch.name,lineId:line.id,
+    createdAt:nowIso(),updatedAt:nowIso(),followUpAt:req.body?.followUpAt||tomorrow.toISOString(),
+    status:'outstanding',stage,notes:str(req.body?.notes).trim(),
+    sku:line.sku,title:line.title,image:line.image,location:line.location,
+    quantity:line.quantityToPick,condition:line.condition,
+    sellerChampProductUrl:line.sellerChampProductUrl,ebayListingUrl:line.ebayListingUrl,
+    orders:Array.isArray(line.orders)?line.orders:[],
+    orderIds:[...new Set((line.orders||[]).map(o=>str(o.orderId)).filter(Boolean))],
+    history:[{action:'marked_freight',stage,at:nowIso()}]
+  };
+  db.freightItems.unshift(freight);
+  line.freightId=freight.id;line.freightStage=stage;line.freightAt=freight.createdAt;
+  if(batch.lines.every(lineResolved))batch.status='completed';else batch.status='in_progress';
+  writeDb(db);res.status(201).json({ok:true,freight:freightView(freight),line,batch:summarize(batch)});
+});
+
+app.patch('/api/freight/:id', (req,res)=> {
+  const db=readDb(),freight=db.freightItems.find(x=>x.id===req.params.id);
+  if(!freight)return res.status(404).json({error:'Freight item not found'});
+  const action=req.body?.action;
+  const batch=db.batches.find(x=>x.id===freight.batchId),line=batch?.lines?.find(x=>x.id===freight.lineId);
+  if(action==='mark_packed'||action==='pickup_scheduled'){
+    freight.stage=action==='mark_packed'?'packed':'pickup_scheduled';
+    if(req.body?.followUpAt)freight.followUpAt=req.body.followUpAt;
+  }else if(action==='complete'){
+    freight.status='completed';freight.stage='shipped';freight.completedAt=nowIso();
+  }else if(action==='cancel'){
+    freight.status='cancelled';freight.cancelledAt=nowIso();
+  }else if(action==='return_to_pick'){
+    freight.status='cancelled';freight.cancelledAt=nowIso();freight.cancelReason='returned_to_pick';
+    if(line){delete line.freightId;delete line.freightStage;delete line.freightAt;line.picked=false;line.pickedAt=null}
+    if(batch){batch.status=batch.lines.every(lineResolved)?'completed':'in_progress';batch.archivedAt=null}
+  }else return res.status(400).json({error:'Invalid freight action.'});
+  if(req.body?.notes!==undefined)freight.notes=str(req.body.notes).trim();
+  freight.updatedAt=nowIso();freight.history=Array.isArray(freight.history)?freight.history:[];
+  freight.history.push({action,at:freight.updatedAt,followUpAt:req.body?.followUpAt||undefined});
+  writeDb(db);res.json({ok:true,freight:freightView(freight),batch:batch?summarize(batch):null,line:line||null});
 });
 async function setArchivedLineInventory(line, actual) {
   let productId=str(line.productId), variantId=str(line.variantId), inventoryLocationId=str(line.inventoryLocationId);
