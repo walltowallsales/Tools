@@ -1,0 +1,23 @@
+'use strict';
+const assert=require('assert');
+const fs=require('fs');
+const os=require('os');
+const path=require('path');
+const net=require('net');
+const {spawn}=require('child_process');
+const dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'pick-forklift-'));
+const lines=['A0101','RACK-C20','RACK-C21'].map((location,i)=>({id:`line-${i}`,sku:`TEST-${i}`,title:`Item ${i}`,location,quantityToPick:1,quantityOnHand:4,picked:false,orders:[{orderId:`order-${i}`,orderNumber:`100-${i}`,quantity:1}]}));
+fs.writeFileSync(path.join(dataDir,'pick-batches.json'),JSON.stringify({batches:[{id:'batch',name:'Morning Pick',createdAt:new Date().toISOString(),status:'in_progress',currentIndex:0,orderIds:['order-0','order-1','order-2'],orderNumbers:['100-0','100-1','100-2'],lines}],freightItems:[]}));
+const port=()=>new Promise(resolve=>{const server=net.createServer();server.listen(0,'127.0.0.1',()=>{const p=server.address().port;server.close(()=>resolve(p))})});
+(async()=>{const p=await port(),child=spawn(process.execPath,['server.js'],{cwd:path.join(__dirname,'..','modules','pick'),env:{...process.env,PORT:String(p),DATA_DIR:dataDir,APP_PIN:''},stdio:['ignore','pipe','pipe']});
+const req=async(url,options={})=>{const r=await fetch(`http://127.0.0.1:${p}${url}`,{...options,headers:{'content-type':'application/json'}});return {status:r.status,...await r.json()}};
+try{let ready=false;for(let i=0;i<50;i++){try{await req('/api/health');ready=true;break}catch{await new Promise(r=>setTimeout(r,50))}}assert(ready);
+for(const i of [1,2]){const r=await req(`/api/batches/batch/lines/line-${i}/forklift`,{method:'POST',body:'{}'});assert.equal(r.status,200);assert.equal(r.batch.forkliftStops,i);assert.equal(r.batch.pickedStops,0)}
+let r=await req('/api/batches/batch/lines/line-0',{method:'PATCH',body:JSON.stringify({picked:true})});assert.equal(r.batch.forkliftStops,2);assert.equal(r.batch.status,'in_progress');
+r=await req('/api/batches/batch',{method:'PATCH',body:JSON.stringify({status:'archived'})});assert.equal(r.status,409,'pending forklift work cannot archive');
+let saved=await req('/api/batches/batch');assert.equal(saved.lines.filter(l=>l.forkliftDeferredAt).length,2);
+r=await req('/api/batches/batch/lines/line-1',{method:'PATCH',body:JSON.stringify({picked:true})});assert.equal(r.batch.forkliftStops,1);
+r=await req('/api/batches/batch/lines/line-2',{method:'PATCH',body:JSON.stringify({picked:true})});assert.equal(r.batch.forkliftStops,0);assert.equal(r.batch.pickedStops,3);
+r=await req('/api/batches/batch',{method:'PATCH',body:JSON.stringify({status:'archived'})});assert.equal(r.status,200);
+console.log('Pick forklift workflow OK: deferred lines persist, prevent archiving, and clear when picked.');
+}finally{child.kill('SIGTERM');fs.rmSync(dataDir,{recursive:true,force:true})}})().catch(e=>{console.error(e);process.exitCode=1});

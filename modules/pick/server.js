@@ -306,6 +306,7 @@ function summarize(batch) {
     uniqueStops: batch.lines.length,
     totalUnits: batch.lines.reduce((s,l)=>s+n(l.quantityToPick),0),
     pickedStops: batch.lines.filter(lineResolved).length,
+    forkliftStops: batch.lines.filter(l=>!!l.forkliftDeferredAt&&!lineResolved(l)).length,
     freightStops: batch.lines.filter(l=>!!l.freightId).length,
     currentIndex: batch.currentIndex || 0
   };
@@ -357,7 +358,10 @@ app.patch('/api/batches/:id', (req,res)=> {
   const db=readDb(); const b=db.batches.find(x=>x.id===req.params.id);
   if(!b) return res.status(404).json({error:'Batch not found'});
   if (req.body?.name !== undefined) b.name=str(req.body.name).trim() || b.name;
-  if (req.body?.status && ['not_started','in_progress','completed','archived'].includes(req.body.status)) { b.status=req.body.status; if(req.body.status==='archived') b.archivedAt=nowIso(); }
+  if (req.body?.status && ['not_started','in_progress','completed','archived'].includes(req.body.status)) {
+    if(['completed','archived'].includes(req.body.status)&&!b.lines.every(lineResolved))return res.status(409).json({error:'This batch still has unpicked items, including any saved for the forklift pass.'});
+    b.status=req.body.status; if(req.body.status==='archived') b.archivedAt=nowIso();
+  }
   if (Number.isInteger(req.body?.currentIndex)) b.currentIndex=Math.max(0,Math.min(req.body.currentIndex, Math.max(0,b.lines.length-1)));
   writeDb(db); res.json({batch:summarize(b)});
 });
@@ -365,10 +369,26 @@ app.patch('/api/batches/:id/lines/:lineId', (req,res)=> {
   const db=readDb(); const b=db.batches.find(x=>x.id===req.params.id);
   if(!b) return res.status(404).json({error:'Batch not found'});
   const line=b.lines.find(x=>x.id===req.params.lineId); if(!line) return res.status(404).json({error:'Line not found'});
-  if (typeof req.body?.picked === 'boolean') { line.picked=req.body.picked; line.pickedAt=line.picked?nowIso():null; }
+  if (typeof req.body?.picked === 'boolean') {
+    if(req.body.picked&&line.freightId)return res.status(409).json({error:'Return this freight item to the pick list before marking it picked.'});
+    line.picked=req.body.picked; line.pickedAt=line.picked?nowIso():null;
+    if(line.picked){delete line.forkliftDeferredAt;delete line.forkliftNote}
+  }
   if (typeof req.body?.onHandVerified === 'boolean') line.onHandVerified=req.body.onHandVerified;
   if (b.lines.every(lineResolved)) b.status='completed'; else if (b.lines.some(lineResolved)) b.status='in_progress';
   writeDb(db); res.json({line,batch:summarize(b)});
+});
+
+app.post('/api/batches/:id/lines/:lineId/forklift', (req,res)=>{
+  const db=readDb(),b=db.batches.find(x=>x.id===req.params.id);
+  if(!b||b.status==='deleted')return res.status(404).json({error:'Batch not found'});
+  const line=b.lines.find(x=>x.id===req.params.lineId);
+  if(!line)return res.status(404).json({error:'Item not found in this batch.'});
+  if(line.picked||line.freightId)return res.status(409).json({error:'This item was already picked or moved to freight.'});
+  line.forkliftDeferredAt=line.forkliftDeferredAt||nowIso();
+  line.forkliftNote=str(req.body?.note).trim();
+  b.status='in_progress';writeDb(db);
+  res.json({line,batch:summarize(b)});
 });
 
 function freightView(f) {

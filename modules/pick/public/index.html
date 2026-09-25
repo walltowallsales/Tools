@@ -8,7 +8,7 @@
 </head>
 <body>
 <a class="suite-back" href="/">← SellerChamp Tools</a>
-<div class="versionBadge">Version 29</div>
+<div class="versionBadge">Version 30</div>
 <header><div><h1>Pick Batches</h1><p>Frozen SellerChamp picking sessions</p></div><button id="homeBtn" class="ghost hidden">Home</button></header>
 <main>
 <section id="pinView" class="card hidden"><h2>Enter PIN</h2><input id="pinInput" inputmode="numeric" type="password" placeholder="PIN"><button id="pinBtn">Unlock</button><p id="pinErr" class="error"></p></section>
@@ -40,6 +40,7 @@
 <section id="batchView" class="hidden">
   <div id="batchHead" class="card"></div>
   <div class="actions"><button id="startBtn" class="primary">Open Dynamic Pick Guide</button><button id="printBtn">Print Pick List</button><button id="deleteBtn" class="danger ghost">Delete Batch</button></div>
+  <section id="forkliftQueue" class="forkliftQueue hidden"><h2>🏗️ Forklift Pass <span id="forkliftCount"></span></h2><p>These items remain unpicked in this batch. Open one after the shelf pass and mark it picked in the guide.</p><div id="forkliftList"></div></section>
   <div id="lineTableWrap" class="card tableWrap"></div>
 </section>
 <section id="pickerView" class="hidden">
@@ -56,6 +57,7 @@
   </div>
   <label id="multiConfirm" class="confirm bottomConfirm hidden"><input id="confirmQty" type="checkbox"> <span id="confirmLabel">I picked the full quantity</span></label>
   <button id="freightBtn" class="freightBtn" type="button">🚚 Mark as Freight / Defer</button>
+  <button id="forkliftBtn" class="forkliftBtn" type="button">🏗️ Forklift Later — Skip for Now</button>
   <div id="freightPanel" class="freightPanel hidden">
     <h3>Move this item to Outstanding Freight?</h3>
     <p>It will leave the normal pick guide and will not appear in a later pick batch.</p>
