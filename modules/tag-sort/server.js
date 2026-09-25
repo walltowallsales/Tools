@@ -97,17 +97,17 @@ async function buildIndexes(){
         if(!manifest?.id)continue;
         for(let listingPage=1;listingPage<=100;listingPage++){
           const listingData=await sc(`/api/manifests/${encodeURIComponent(manifest.id)}/product_listings?page=${listingPage}&page_size=100`);let listings=listingData.product_listings||[];if(!Array.isArray(listings))listings=listings?[listings]:[];
-          for(const row of listings){const tags=tagsOf(row);if(!tags.length)continue;const key=`${manifest.id}|${row.id||row.sku}`;if(batchSeen.has(key))continue;batchSeen.add(key);batches.push({id:row.id||'',product_id:row.product_id||'',manifest_id:manifest.id,manifest_name:manifest.name||'',sku:String(row.sku||row.custom_catalogue_sku||row.catalogue_sku||''),upc:String(row.upc||row.barcode||''),title:String(row.title||''),image:imageOf(row),quantity_available:Number(row.quantity_available??row.quantity??0),tags,locations:[{location:String(row.location||row.item_location||''),quantity:Number(row.quantity_available??row.quantity??0)}],status:String(manifest.status||''),source:'batch',url:`https://app.sellerchamp.com/manifests/${encodeURIComponent(manifest.id)}?product_listing%5Bquery%5D=${encodeURIComponent(row.sku||'')}`});progress.batches=batches.length}
+          for(const row of listings){const tags=tagsOf(row);const key=`${manifest.id}|${row.id||row.sku}`;if(batchSeen.has(key))continue;batchSeen.add(key);batches.push({id:row.id||'',product_id:row.product_id||'',manifest_id:manifest.id,manifest_name:manifest.name||'',sku:String(row.sku||row.custom_catalogue_sku||row.catalogue_sku||''),upc:String(row.upc||row.barcode||''),title:String(row.title||''),image:imageOf(row),quantity_available:Number(row.quantity_available??row.quantity??0),tags,locations:[{location:String(row.location||row.item_location||''),quantity:Number(row.quantity_available??row.quantity??0)}],status:String(manifest.status||''),source:'batch',url:`https://app.sellerchamp.com/manifests/${encodeURIComponent(manifest.id)}?product_listing%5Bquery%5D=${encodeURIComponent(row.sku||'')}`});progress.batches=batches.length}
           if(listings.length<100)break;
         }
       }
       if(manifests.length<100)break;
     }
-    write(BATCH_INDEX,{updated_at:now,items:batches},'tags');progress.phase='complete';
+    write(BATCH_INDEX,{updated_at:now,includes_untagged:true,items:batches},'tags');progress.phase='complete';
   }catch(error){buildError=error.message||'Refresh failed.';progress.phase='error';throw error}finally{building=false}
 }
 
-app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.8.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
+app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.9.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
 app.get('/api/tags',(req,res)=>{
   const all=currentItems(),byTag=new Map();
   for(const row of all){
@@ -176,5 +176,5 @@ app.post('/api/product/:id/end-listing',async(req,res)=>{try{
   return res.status(409).json({error:`SellerChamp accepted the request, but still reports ${String(product?.status||'unknown').toUpperCase()}. No verified success was reported.`});
 }catch(e){res.status(e.status||500).json({error:'SellerChamp could not end this listing.',details:e.data||e.message})}});
 app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
-app.listen(PORT,()=>{console.log(`SellerChamp Tag Location Sorter running on ${PORT}`);const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);if(!p.items.length||!b.items.length)buildIndexes().catch(error=>console.error('Initial tag index refresh failed:',error.message))});
+app.listen(PORT,()=>{console.log(`SellerChamp Tag Location Sorter running on ${PORT}`);const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);let completeBatchIndex=false;try{completeBatchIndex=JSON.parse(fs.readFileSync(BATCH_INDEX,'utf8')).includes_untagged===true}catch{}if(!p.items.length||!b.items.length||!completeBatchIndex)buildIndexes().catch(error=>console.error('Initial tag index refresh failed:',error.message))});
 setInterval(()=>{if(!building)buildIndexes().catch(error=>console.error('Scheduled tag index refresh failed:',error.message))},24*60*60*1000).unref();

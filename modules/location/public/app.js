@@ -29,7 +29,7 @@ function busy(btn,on,label) { if(on){btn.dataset.old=btn.textContent;btn.textCon
 async function checkStatus(){
   try{
     const data=await api('/api/status');
-    $('connection').textContent='SellerChamp connected'; if($('appVersion')) $('appVersion').textContent='v'+(data.version||'2.37.0'); $('connection').className='status ok'; $('pinCard').classList.add('hidden');
+    $('connection').textContent='SellerChamp connected'; if($('appVersion')) $('appVersion').textContent='v'+(data.version||'2.39.0'); $('connection').className='status ok'; $('pinCard').classList.add('hidden');
     showIndexStatus(data.search_index||{});
   }catch(e){
     $('connection').textContent=e.message.includes('PIN')?'PIN required':'Not connected'; $('connection').className='status bad';
@@ -39,6 +39,7 @@ async function checkStatus(){
 
 function showIndexStatus(index){
   if(!$('indexStatus'))return;
+  if(index.listing_index_ready===false){$('indexStatus').textContent=`Updating listing-title search… ${Number(index.count||0).toLocaleString()} Product items currently available. Try title searches again once this finishes.`;return;}
   if(index.building){$('indexStatus').textContent=`Building fast search… ${Number(index.count||0).toLocaleString()} saved items available`;return;}
   if(index.count){
     const when=index.updated_at?new Date(index.updated_at).toLocaleString():'';
@@ -107,7 +108,7 @@ function renderTitleResults(results){
     const p=results[Number(btn.dataset.i)];
     $('lookup').value=p.sku;
     box.classList.add('hidden');
-    await findItem(true,p.id||'');
+    await findItem(true,p.product_id||((p.source==='batch')?'':p.id)||'');
   });
 }
 
@@ -342,3 +343,4 @@ function escapeHtml(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','
 $('clearHistory').onclick=()=>{state.history=[];localStorage.removeItem('moveHistory');renderHistory();};
 
 checkStatus();$('lookup').focus();
+setInterval(checkStatus,30000);

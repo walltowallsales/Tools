@@ -35,9 +35,18 @@ async function waitFor(url) {
 
 async function main() {
   const dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'sellerchamp-move-index-'));
+  fs.writeFileSync(path.join(dataDir,'tag-batch-search-index.json'),JSON.stringify({updated_at:new Date().toISOString(),items:[{
+    id:'listing-1',product_id:'',manifest_id:'manifest-1',sku:'2609-44200',upc:'',
+    title:'ID Technology 252 Printer Applicator Control Module ID100001 100-240V Unit',
+    quantity_available:1,tags:['Ready to list'],source:'batch'
+  },{
+    id:'listing-2',product_id:'p2',manifest_id:'manifest-1',sku:'2609-44261',upc:'',
+    title:'100- Heyco SMCG 1 NPT BLK 9-5.5mm Solar MastHead Connector',
+    quantity_available:1,tags:[],source:'batch'
+  }]}));
   const products = [
     { id:'p1', sku:'ABC12345', upc:'012345678905', title:'Blue Industrial Widget', tags_array:['auction'], quantity_available:4, primary_image_url:'https://example.test/blue.jpg' },
-    { id:'p2', sku:'ZZZ90000', upc:'998877665544', title:'Red Control Module', quantity_available:2 },
+    { id:'p2', sku:'2609-44261', upc:'998877665544', title:'Red Control Module', quantity_available:2, product_listings:[{title:'100- Heyco SMCG 1 NPT BLK 9-5.5mm Solar MastHead Connector'}] },
     { id:'p3', sku:'PARENT100', upc:'', title:'Green Variant Assembly', quantity_available:1, variants:[{sku:'VARIANT777',upc:'777788889999'}] }
   ];
   // Simulates an older item that is not present on the first general catalogue
@@ -111,6 +120,20 @@ async function main() {
     }
     response=await fetch(`${base}/api/item-search?q=BC123`);body=await response.json();
     assert.equal(body.source,'local-index','partial search should use the local index');
+
+    response=await fetch(`${base}/api/item-search?q=smcg`);body=await response.json();
+    assert.ok(body.results.some(row=>row.sku==='2609-44261'&&row.match_label==='Title match'),
+      'active product must match its marketplace listing title');
+    assert.ok(body.results.some(row=>row.sku==='2609-44261'&&row.source==='batch'&&row.product_id==='p2'),
+      'active untagged marketplace listing title must be found');
+
+    response=await fetch(`${base}/api/item-search?q=id100001`);body=await response.json();
+    assert.equal(response.status,200);
+    const batchMatch=body.results.find(row=>row.sku==='2609-44200');
+    assert.ok(batchMatch,'unsubmitted Batch title must be found by partial search');
+    assert.equal(batchMatch.match_label,'Title match');
+    assert.equal(batchMatch.source,'batch');
+    assert.equal(batchMatch.product_id,'','Batch listing ID must not be passed as Product ID');
 
     response=await fetch(`${base}/api/lookup?code=2510-42859&productId=p-old`);body=await response.json();
     assert.equal(response.status,200);

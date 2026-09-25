@@ -11,6 +11,7 @@ const APP_PIN = process.env.APP_PIN || '';
 const SC_BASE = (process.env.SELLERCHAMP_BASE_URL || 'https://app.sellerchamp.com').replace(/\/$/, '');
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data'));
 const SEARCH_INDEX_FILE = path.join(DATA_DIR, 'move-product-search-index.json');
+const BATCH_INDEX_FILE = path.join(DATA_DIR, 'tag-batch-search-index.json');
 const SEARCH_INDEX_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -63,6 +64,11 @@ async function scFetch(endpoint, options = {}) {
 
 function indexRowsFromProduct(p) {
   const variants = Array.isArray(p.variants) ? p.variants : [];
+  const listingTitles = [p.title,p.product_title,p.marketplace_title,p.listing_title,p.ebay_title,
+    ...variants.flatMap(v => [v.title,v.product_title,v.marketplace_title,v.listing_title]),
+    ...(Array.isArray(p.product_listings) ? p.product_listings.map(v => v.title) : []),
+    ...(Array.isArray(p.marketplace_listings) ? p.marketplace_listings.map(v => v.title) : [])
+  ].filter(value => typeof value === 'string' && value.trim());
   const parentSku = String(p.sku || p.custom_catalogue_sku || p.catalogue_sku || '');
   const rawTags = p.tags_array ?? p.tags ?? p.tag_list ?? p.product_tags ?? [];
   const tags = (Array.isArray(rawTags) ? rawTags : String(rawTags).split(','))
@@ -74,7 +80,8 @@ function indexRowsFromProduct(p) {
   }
   const base = {
     id: p.id || '',
-    title: String(p.title || p.product_title || ''),
+    title: String(listingTitles[0] || ''),
+    search_titles: [...new Set(listingTitles)],
     image: p.primary_image || p.primary_image_url || p.image_url || p.image ||
       p.product_images?.[0]?.large_image_url || p.product_images?.[0]?.image_url || '',
     quantity_available: Number(p.quantity_available || 0),
@@ -91,7 +98,7 @@ function indexRowsFromProduct(p) {
   for (const variant of variants) {
     const variantSku = String(variant.sku || variant.custom_catalogue_sku || variant.catalogue_sku || '');
     const variantUpc = String(variant.upc || variant.barcode || '');
-    if (variantSku) rows.push({ ...base, sku: variantSku, upc: '' });
+    if (variantSku) rows.push({ ...base, sku: variantSku, upc: '', title: variant.title || base.title });
     if (variantUpc) rows.push({ ...base, sku: parentSku || variantSku, upc: variantUpc });
   }
   return rows.filter(row => row.sku || row.upc || row.title);
@@ -106,6 +113,11 @@ function loadSearchIndex() {
     searchIndexUpdatedAt = saved.updated_at || null;
     searchIndexMtimeMs = stat.mtimeMs;
   } catch {}
+}
+
+function listingIndexReady() {
+  try { return JSON.parse(fs.readFileSync(BATCH_INDEX_FILE, 'utf8')).includes_untagged === true; }
+  catch { return false; }
 }
 
 async function rebuildSearchIndex() {
@@ -158,10 +170,15 @@ async function rebuildSearchIndex() {
 
 function searchLocalIndex(query) {
   const needle = query.toLowerCase();
-  return searchIndex.map(row => {
+  let batchRows = [];
+  try {
+    const saved = JSON.parse(fs.readFileSync(BATCH_INDEX_FILE, 'utf8'));
+    if (Array.isArray(saved.items)) batchRows = saved.items;
+  } catch {}
+  return [...searchIndex, ...batchRows].map(row => {
     const sku = String(row.sku || '');
     const upc = String(row.upc || '');
-    const title = String(row.title || '');
+    const titles = [row.title,...(Array.isArray(row.search_titles)?row.search_titles:[])].map(String);
     let score = 0;
     let matchLabel = '';
     if (sku.toLowerCase() === needle) { score = 500; matchLabel = 'SKU match'; }
@@ -169,9 +186,12 @@ function searchLocalIndex(query) {
     else if (sku.toLowerCase().startsWith(needle)) { score = 400; matchLabel = 'SKU match'; }
     else if (sku.toLowerCase().includes(needle)) { score = 350; matchLabel = 'SKU match'; }
     else if (upc.toLowerCase().includes(needle)) { score = 330; matchLabel = 'UPC match'; }
-    else if (title.toLowerCase().startsWith(needle)) { score = 250; matchLabel = 'Title match'; }
-    else if (title.toLowerCase().includes(needle)) { score = 200; matchLabel = 'Title match'; }
-    return score ? { ...row, score, match_label: matchLabel } : null;
+    else if (titles.some(title=>title.toLowerCase().startsWith(needle))) { score = 250; matchLabel = 'Title match'; }
+    else if (titles.some(title=>title.toLowerCase().includes(needle))) { score = 200; matchLabel = 'Title match'; }
+    return score ? { ...row, score, match_label: matchLabel,
+      // A manifest listing ID is not a Product ID. Only pass a real product ID
+      // to the live lookup; otherwise resolve the exact SKU in its Batch.
+      product_id: row.source === 'batch' ? String(row.product_id || '') : String(row.id || '') } : null;
   }).filter(Boolean).sort((a,b) => b.score - a.score || a.sku.localeCompare(b.sku)).slice(0,30)
     .map(({ score, ...row }) => row);
 }
@@ -542,14 +562,15 @@ app.get('/api/status', async (req, res) => {
     const data = await scFetch('/api/marketplace_accounts');
     res.json({
       ok: true,
-      version: '2.37.0',
+      version: '2.39.0',
       pinRequired: !!APP_PIN,
       accounts: (data.marketplace_accounts || []).map(a => ({ id: a.id, name: a.name, marketplace: a.marketplace })),
       search_index: {
         count: searchIndex.length,
         updated_at: searchIndexUpdatedAt,
         building: searchIndexBuilding,
-        error: searchIndexError
+        error: searchIndexError,
+        listing_index_ready: listingIndexReady()
       }
     });
   } catch (e) {
@@ -584,7 +605,11 @@ app.get('/api/item-search', async (req,res)=>{
 
     const addMatchingRows=(rows)=>{
       for(const p of rows){
-        const title=String(p.title||p.product_title||'');
+        const titles=[p.title,p.product_title,p.marketplace_title,p.listing_title,p.ebay_title,
+          ...(Array.isArray(p.variants)?p.variants.flatMap(v=>[v.title,v.product_title,v.marketplace_title,v.listing_title]):[]),
+          ...(Array.isArray(p.product_listings)?p.product_listings.map(v=>v.title):[])]
+          .filter(value=>typeof value==='string'&&value.trim());
+        const title=String(titles[0]||'');
         const variants=Array.isArray(p.variants)?p.variants:[];
         const identifiers=[
           {type:'SKU',value:p.sku||p.custom_catalogue_sku||p.catalogue_sku||''},
@@ -595,7 +620,7 @@ app.get('/api/item-search', async (req,res)=>{
           ])
         ].filter(item=>String(item.value||'').trim());
         const identifierMatch=identifiers.find(item=>String(item.value).toLowerCase().includes(needle));
-        const titleMatch=title.toLowerCase().includes(needle);
+        const titleMatch=titles.some(value=>value.toLowerCase().includes(needle));
         if(!identifierMatch&&!titleMatch)continue;
         const matchedSku=identifierMatch?.type==='SKU'?identifierMatch.value:'';
         const sku=matchedSku||p.sku||p.custom_catalogue_sku||p.catalogue_sku||variants.find(v=>v.sku)?.sku||p.upc||p.asin||'';
@@ -626,7 +651,7 @@ app.get('/api/item-search', async (req,res)=>{
       if(candidates.length>=30)break;
     }
 
-    res.json({results:candidates.slice(0,30),source:'sellerchamp-live',updated_at:searchIndexUpdatedAt});
+    res.json({results:candidates.slice(0,30),source:'sellerchamp-live',updated_at:searchIndexUpdatedAt,listing_index_ready:listingIndexReady()});
   }catch(e){
     res.status(e.status||500).json({error:'SellerChamp item search failed.',details:e.data||e.message});
   }

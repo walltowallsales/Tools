@@ -1,4 +1,6 @@
-# Item - Sort Tags by Location v1.8
+# Item - Sort Tags by Location v1.9
+
+v1.9 preserves untagged Batch listings in the shared search index so Location Mover can find visible SellerChamp listing titles. Tag filtering and actions continue to use only records with the selected tag.
 
 Searches any exact SellerChamp tag across Products and Batch listings, then sorts matching items naturally by warehouse location. It shares the suite's persistent Product index with Location Mover and maintains a Batch-listing index alongside it.
 

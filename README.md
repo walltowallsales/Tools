@@ -1,17 +1,17 @@
-# SellerChamp Tools Suite v1.18
+# SellerChamp Tools Suite v1.20
 
 One Render service and one persistent disk containing six independently routed modules:
 
-1. **Item - Move or Update Qty** (`/move/`) — Location Mover v2.37
+1. **Item - Move or Update Qty** (`/move/`) — Location Mover v2.39
 2. **Item - Inventory Verify** (`/inventory/`) — Inventory Checker v1.5
 3. **Item - Local Auction** (`/auction/`) — Auction Inventory v1.13
-4. **Item - Sort Tags by Location** (`/tags/`) — Tag Location Sorter v1.8
+4. **Item - Sort Tags by Location** (`/tags/`) — Tag Location Sorter v1.9
 5. **Shipping - Pick List** (`/shipping/`) — Pick Batch v29
 6. **Orders - Returns** (`/returns/`) — Returns v2.48
 
 The original module source is kept in separate folders under `modules/`. The gateway gives each module its own path and process, so module-specific changes remain isolated. Shared environment settings are normalized by the gateway. One suite-level PIN login covers the dashboard and all six modules for 30 days.
 
-Version 1.18 adds a persistent freight workflow to Shipping - Pick List. Freight items leave the normal pick guide, remain excluded from later pick batches, and appear in an Outstanding Freight queue until completed, cancelled, or returned to the original batch. Version 1.17 improved tag removal reliability.
+Version 1.20 indexes all marketplace listing titles, including active listings without tags and not-submitted batches. The Location Mover searches these titles alongside Product titles; the shared index automatically rebuilds after deployment. Version 1.18 added the persistent freight workflow to Shipping - Pick List.
 
 ## Deploy on Render
 
