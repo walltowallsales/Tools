@@ -27,6 +27,10 @@ async function main(){
   assert.ok(savedBatchIndex.items.some(row=>row.sku==='2609-44261'&&row.title.includes('SMCG')),'untagged listing title must be searchable by Mover');
   let response=await fetch(`${base}/api/tags`),body=await response.json();const auctionOption=body.tag_options.find(x=>x.tag==='auction');assert.ok(auctionOption,'auction is missing from dropdown options');assert.equal(auctionOption.product_count,1);assert.equal(auctionOption.batch_count,0);
   response=await fetch(`${base}/api/search?tag=Reserved%20Quantity&source=all`);body=await response.json();assert.equal(body.count,3);assert.deepEqual(body.results.map(x=>x.locations[0].location),['B4','C2','C10']);
+  const productWithBatch=body.results.find(x=>x.id==='p2');
+  assert.deepEqual(productWithBatch.batch_matches.map(x=>x.manifest_id),['m1'],'Product row must point to its matching SellerChamp batch');
+  const batchWithLink=body.results.find(x=>x.source==='batch');
+  assert.equal(batchWithLink.batch_matches[0].manifest_name,'Draft','Batch result must expose its specific batch name');
   response=await fetch(`${base}/api/search?tag=auction&source=all`);body=await response.json();assert.equal(body.count,1);assert.equal(body.results[0].sku,'TAG-2');
   response=await fetch(`${base}/api/product/p2/live`);body=await response.json();assert.equal(body.product.locations[0].location,'C2');assert.equal(body.product.quantity_available,1);
   response=await fetch(`${base}/api/product/p2/reserve`);body=await response.json();assert.equal(response.status,200,body.error);assert.equal(body.reserve_quantity,3);assert.equal(body.reserve_quantity_location,'C2');

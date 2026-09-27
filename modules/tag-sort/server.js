@@ -110,7 +110,7 @@ async function buildIndexes(){
   }catch(error){buildError=error.message||'Refresh failed.';progress.phase='error';throw error}finally{building=false}
 }
 
-app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.10.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
+app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.11.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
 app.get('/api/index-status',(req,res)=>res.json({building,error:buildError,progress}));
 app.get('/api/tags',(req,res)=>{
   const all=currentItems(),byTag=new Map();
@@ -124,7 +124,27 @@ app.get('/api/tags',(req,res)=>{
   const tag_options=[...byTag.values()].sort((a,b)=>natural(a.tag,b.tag));
   res.json({tags:tag_options.map(x=>x.tag),tag_options});
 });
-app.get('/api/search',(req,res)=>{const tag=String(req.query.tag||'').trim().toLowerCase(),source=String(req.query.source||'all');if(!tag)return res.status(400).json({error:'Enter a tag to search.'});let rows=currentItems().filter(x=>(x.tags||[]).some(t=>String(t).toLowerCase()===tag));if(source!=='all')rows=rows.filter(x=>x.source===source);rows.sort((a,b)=>natural(a.locations?.[0]?.location,b.locations?.[0]?.location)||natural(a.sku,b.sku));res.json({results:rows,count:rows.length,building})});
+app.get('/api/search',(req,res)=>{
+  const tag=String(req.query.tag||'').trim().toLowerCase(),source=String(req.query.source||'all');
+  if(!tag)return res.status(400).json({error:'Enter a tag to search.'});
+  const all=currentItems(),byProduct=new Map(),bySku=new Map();
+  for(const item of all.filter(x=>x.source==='batch'&&x.manifest_id)){
+    const productId=String(item.product_id||''),sku=String(item.sku||'').toLowerCase();
+    if(productId){if(!byProduct.has(productId))byProduct.set(productId,[]);byProduct.get(productId).push(item)}
+    if(sku){if(!bySku.has(sku))bySku.set(sku,[]);bySku.get(sku).push(item)}
+  }
+  let rows=all.filter(x=>(x.tags||[]).some(t=>String(t).toLowerCase()===tag));
+  if(source!=='all')rows=rows.filter(x=>x.source===source);
+  rows=rows.map(row=>{
+    const matches=row.source==='batch'?[row]:(byProduct.get(String(row.id||''))||bySku.get(String(row.sku||'').toLowerCase())||[]);
+    const seen=new Set();
+    const batch_matches=matches.filter(x=>{const key=String(x.manifest_id);if(seen.has(key))return false;seen.add(key);return true})
+      .map(x=>({manifest_id:String(x.manifest_id),manifest_name:String(x.manifest_name||''),sku:String(x.sku||row.sku||'')}));
+    return {...row,batch_matches};
+  });
+  rows.sort((a,b)=>natural(a.locations?.[0]?.location,b.locations?.[0]?.location)||natural(a.sku,b.sku));
+  res.json({results:rows,count:rows.length,building});
+});
 app.post('/api/refresh',(req,res)=>{if(!building)buildIndexes().catch(error=>console.error('Tag index refresh failed:',error.message));res.status(202).json({ok:true,building:true,message:building?'Refresh already running.':'Refresh started.'})});
 app.get('/api/product/:id/live',async(req,res)=>{try{const product=await liveProduct(req.params.id);saveLiveProduct(product);res.json({product})}catch(e){res.status(e.status||500).json({error:'Could not reload this product.',details:e.data||e.message})}});
 app.get('/api/product/:id/reserve',async(req,res)=>{try{const detail=await sc(`/api/products/${encodeURIComponent(req.params.id)}.json`),product=detail.product||detail||{};res.json({ok:true,reserve_quantity:Number(product.reserve_quantity||0),reserve_quantity_location:String(product.reserve_quantity_location||'')})}catch(e){res.status(e.status||500).json({error:'Could not load the current reserve quantity.',details:e.data||e.message})}});
