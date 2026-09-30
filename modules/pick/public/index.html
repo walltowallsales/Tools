@@ -8,7 +8,7 @@
 </head>
 <body>
 <a class="suite-back" href="/">← SellerChamp Tools</a>
-<div class="versionBadge">Version 32</div>
+<div class="versionBadge">Version 33</div>
 <header><div><h1>Pick Batches</h1><p>Frozen SellerChamp picking sessions</p></div><button id="homeBtn" class="ghost hidden">Home</button></header>
 <main>
 <section id="pinView" class="card hidden"><h2>Enter PIN</h2><input id="pinInput" inputmode="numeric" type="password" placeholder="PIN"><button id="pinBtn">Unlock</button><p id="pinErr" class="error"></p></section>
@@ -18,6 +18,8 @@
     <div id="preview" class="preview">Checking SellerChamp…</div>
     <button id="createBtn" class="primary" disabled>Create Pick Batch</button>
     <a class="ebayOrdersBtn" href="https://www.ebay.com/sh/ord/?filter=status:AWAITING_SHIPMENT" target="_blank" rel="noopener noreferrer">Ebay Orders</a>
+    <button id="forgotBatchBtn" class="forgotBatchBtn" type="button">I Forgot to Create the Pick Batch</button>
+    <p id="lastBatchReminder" class="meta"></p>
     <p id="homeError" class="error"></p>
   </div>
   <button id="freightQueueBtn" class="freightQueueBtn" type="button">🚚 Outstanding Freight <span id="freightBadge">0</span></button>
@@ -30,6 +32,13 @@
     <summary>Recently Deleted <span id="deletedCount"></span></summary>
     <div id="deletedList" class="batchList archiveList"></div>
   </details>
+</section>
+<section id="recoveryView" class="hidden">
+  <div class="card"><h2>I Forgot to Create the Pick Batch</h2><p>Find paid eBay orders placed in this window, including orders already marked shipped. Orders in saved pick batches or freight tracking are excluded.</p><p id="recoveryLastBatch" class="meta"></p>
+  <p><strong>All times are Central time (America/Chicago).</strong> The suggested start overlaps the last batch by five minutes.</p>
+  <div class="recoveryDates"><label>From (inclusive)<input id="recoveryStart" type="datetime-local" step="60"></label><label>Through (inclusive)<input id="recoveryEnd" type="datetime-local" step="60"></label></div>
+  <button id="recoverySearchBtn" type="button">Find Orders to Recover</button><p id="recoveryError" class="error" role="alert"></p></div>
+  <div id="recoveryResults" class="card hidden"><p class="recoveryWarning">A printed shipping label does not mean the item has been picked. Check only orders that still need picking. Shipped orders may show inventory after the sale was deducted.</p><p id="recoverySummary"></p><div class="recoverySelect"><button id="recoverySelectAll" type="button">Select All</button><button id="recoverySelectNone" type="button">Clear All</button></div><div id="recoveryOrders"></div><p id="recoverySelected" aria-live="polite"></p><button id="recoveryCreateBtn" class="primary" type="button" disabled>Create Batch from Selected Orders</button></div>
 </section>
 <section id="freightView" class="hidden">
   <div class="freightHeading"><div><h2>Outstanding Freight</h2><p>Freight stays here until it is shipped, cancelled, or returned to its original pick batch.</p></div><button id="freightRefreshBtn" type="button">Refresh</button></div>

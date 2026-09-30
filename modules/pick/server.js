@@ -2,6 +2,9 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const {chicagoWall,range:recoveryRange}=require('./recovery-time');
+let creatingBatch=false;
+const recoveryPreviews=new Map();
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -85,7 +88,7 @@ async function scWrite(method, endpoint, payload) {
 }
 
 function orderTimestamp(order) {
-  const candidates = [order?.order_date, order?.created_at, order?.ordered_at, order?.purchase_date, order?.date_created];
+  const candidates = [order?.purchased_at, order?.order_date, order?.ordered_at, order?.purchase_date, order?.created_at, order?.date_created];
   for (const value of candidates) {
     if (!value) continue;
     const t = new Date(value).getTime();
@@ -267,7 +270,7 @@ async function buildSnapshot(orders) {
       const key = sku;
       let g = groups.get(key);
       if (!g) { g = { sku, orders: [], sampleOrder: order, sampleItem: item }; groups.set(key,g); }
-      g.orders.push({ orderId: str(order.id), orderNumber: str(order.order_number || order.purchase_number || order.id), quantity: qty });
+      g.orders.push({ orderId: str(order.id), orderNumber: str(order.order_number || order.purchase_number || order.id), quantity: qty, orderStatus:str(order.order_status), alreadyMarkedShipped:/shipped|completed/i.test(str(order.order_status)) });
     }
   }
   const lines = [];
@@ -308,7 +311,7 @@ function summarize(batch) {
     pickedStops: batch.lines.filter(lineResolved).length,
     forkliftStops: batch.lines.filter(l=>!!l.forkliftDeferredAt&&!lineResolved(l)).length,
     freightStops: batch.lines.filter(l=>!!l.freightId).length,
-    currentIndex: batch.currentIndex || 0
+    currentIndex: batch.currentIndex || 0, recoveryWindow:batch.recoveryWindow||null
   };
 }
 
@@ -324,26 +327,55 @@ app.get('/api/preview', async (req,res) => {
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
-app.post('/api/batches', async (req,res) => {
-  try {
-    productCache.clear();
-    const db = readDb();
-    const used = usedOrderIds(db);
-    const orders = (await fetchAllQualifyingOrders()).filter(o => !used.has(str(o.id)));
-    if (!orders.length) return res.status(409).json({ error:'There are no new qualifying orders to add to a pick batch.' });
-    const lines = await buildSnapshot(orders);
-    const createdAt = nowIso();
-    const localLabel = new Date(createdAt).toLocaleString('en-US', { timeZone:'America/Chicago', month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' });
-    const batch = {
-      id:uid(), name:str(req.body?.name).trim() || localLabel,
-      createdAt, status:'not_started', currentIndex:0,
-      orderIds: orders.map(o=>str(o.id)),
-      orderNumbers: orders.map(o=>str(o.order_number || o.purchase_number || o.id)),
-      lines
-    };
-    db.batches.unshift(batch); writeDb(db);
-    res.status(201).json({ batch:summarize(batch), lines:batch.lines });
-  } catch(e) { res.status(500).json({ error:e.message }); }
+function saveNewBatch(orders,lines,body={},recoveryWindow=null){
+  const db=readDb(),used=usedOrderIds(db);
+  if(orders.some(o=>used.has(str(o.id))))throw Error('One of these orders was added to a batch while the snapshot was building. Refresh the preview and try again.');
+  const createdAt=nowIso(),localLabel=new Date(createdAt).toLocaleString('en-US',{timeZone:'America/Chicago',month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'});
+  const batch={id:uid(),name:str(body.name).trim()||(recoveryWindow?'Recovered · ':'')+localLabel,createdAt,status:'not_started',currentIndex:0,orderIds:orders.map(o=>str(o.id)),orderNumbers:orders.map(o=>str(o.order_number||o.purchase_number||o.id)),lines};
+  if(recoveryWindow)batch.recoveryWindow=recoveryWindow;
+  db.batches.unshift(batch);writeDb(db);return batch;
+}
+app.post('/api/batches',async(req,res)=>{
+  if(creatingBatch)return res.status(409).json({error:'A pick batch is already being created. Please wait.'});creatingBatch=true;
+  try{productCache.clear();const used=usedOrderIds(readDb()),orders=(await fetchAllQualifyingOrders()).filter(o=>!used.has(str(o.id)));
+    if(!orders.length)return res.status(409).json({error:'There are no new qualifying orders to add to a pick batch.'});
+    const lines=await buildSnapshot(orders),batch=saveNewBatch(orders,lines,req.body);res.status(201).json({batch:summarize(batch),lines:batch.lines});
+  }catch(e){res.status(500).json({error:e.message})}finally{creatingBatch=false}
+});
+function recoveryUsed(db){const ids=usedOrderIds(db),numbers=new Set(db.batches.filter(b=>b.status!=='deleted').flatMap(b=>b.orderNumbers||[]).map(str));for(const f of db.freightItems||[])if(f.status!=='cancelled')for(const o of f.orders||[])numbers.add(str(o.orderNumber));return o=>ids.has(str(o.id))||numbers.has(str(o.order_number||o.purchase_number));}
+app.get('/api/recovery/defaults',(req,res)=>{const batches=readDb().batches.filter(b=>b.status!=='deleted').sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)),last=batches[0];res.json({lastBatchCreatedAt:last?.createdAt||null,start:chicagoWall(last?new Date(last.createdAt).getTime()-5*60000:Date.now()-86400000),end:chicagoWall(Date.now()),timeZone:'America/Chicago'})});
+let findingRecovery=false;
+app.post('/api/recovery/preview',async(req,res)=>{
+  if(findingRecovery)return res.status(409).json({error:'A recovery search is already running. Please wait.'});
+  let window;try{window=recoveryRange(req.body||{})}catch(e){return res.status(400).json({error:e.message})}findingRecovery=true;
+  try{
+    const accounts=(await scGet('/api/marketplace_accounts')).marketplace_accounts||[],ebayIds=new Set(accounts.filter(a=>/ebay/i.test(str(a.marketplace_account_type||a.type))).map(a=>str(a.id)));
+    const found=new Map();let excluded=0;
+    for(let page=1;page<=100;page++){
+      if(page>1)await new Promise(r=>setTimeout(r,2000));
+      const body=await scGet('/api/orders',{purchased_at_start:window.startIso,purchased_at_end:window.endIso,page,page_size:250,sort:'purchased_at',direction:'DESC'}),orders=Array.isArray(body.orders)?body.orders:[];
+      for(const order of orders){const time=orderTimestamp(order),ebay=/^ebay(?:account)?$/i.test(str(order.marketplace||order.marketplace_type))||ebayIds.has(str(order.marketplace_account_id));
+        if(!ebay||order.paid!==true||order.on_hold||/cancel|refund|returned/i.test(str(order.order_status))||time===null||time<window.start||time>window.end)continue;
+        if(!order.id&&order.order_id)order.id=order.order_id;
+        if(!order.id)throw Error('SellerChamp returned an eligible order without its ID. The search stopped to avoid an incomplete recovery batch.');
+        if(!(order.items||[]).some(i=>str(i.variant_sku||i.sku).trim()&&n(i.quantity)>0))continue;
+        found.set(str(order.id),order);
+      }
+      if(orders.length<250)break;if(page===100)throw Error('Too many order pages. Use a shorter date range.');
+    }
+    const isUsed=recoveryUsed(readDb()),orders=[...found.values()].filter(o=>{if(isUsed(o)){excluded++;return false}return true}).sort((a,b)=>orderTimestamp(a)-orderTimestamp(b));
+    for(const [key,value] of recoveryPreviews)if(value.expires<Date.now())recoveryPreviews.delete(key);if(recoveryPreviews.size>=20)recoveryPreviews.delete(recoveryPreviews.keys().next().value);
+    const previewId=uid();recoveryPreviews.set(previewId,{orders,window,expires:Date.now()+15*60000});
+    res.json({previewId,excludedAlreadyBatched:excluded,orders:orders.map(o=>({id:str(o.id),orderNumber:str(o.order_number||o.purchase_number||o.id),placedAt:new Date(orderTimestamp(o)).toISOString(),status:str(o.order_status),alreadyMarkedShipped:/shipped|completed/i.test(str(o.order_status)),items:(o.items||[]).map(i=>({sku:str(i.variant_sku||i.sku),title:str(i.title),quantity:n(i.quantity)}))}))});
+  }catch(e){res.status(502).json({error:e.message})}finally{findingRecovery=false}
+});
+app.post('/api/recovery/create',async(req,res)=>{
+  if(creatingBatch)return res.status(409).json({error:'A pick batch is already being created. Please wait.'});
+  const saved=recoveryPreviews.get(str(req.body?.previewId));if(!saved||saved.expires<Date.now())return res.status(409).json({error:'This preview expired. Search the date range again.'});
+  const ids=Array.isArray(req.body?.orderIds)?req.body.orderIds.map(str):[];if(!ids.length)return res.status(400).json({error:'Select at least one order.'});
+  const byId=new Map(saved.orders.map(o=>[str(o.id),o]));if(ids.some(id=>!byId.has(id)))return res.status(400).json({error:'An order is not in this preview. Search again.'});
+  const isUsed=recoveryUsed(readDb()),orders=[...new Set(ids)].map(id=>byId.get(id));if(orders.some(isUsed))return res.status(409).json({error:'A selected order is already in a batch or freight tracking. Search again.'});
+  creatingBatch=true;try{productCache.clear();const lines=await buildSnapshot(orders);if(!lines.length)throw Error('These orders have no pickable items.');if(orders.some(recoveryUsed(readDb())))return res.status(409).json({error:'A selected order was just added to a batch or freight tracking. Search again.'});const batch=saveNewBatch(orders,lines,{}, {start:saved.window.startIso,end:saved.window.endIso,timeZone:'America/Chicago'});recoveryPreviews.delete(str(req.body.previewId));res.status(201).json({batch:summarize(batch),lines})}catch(e){res.status(500).json({error:e.message})}finally{creatingBatch=false}
 });
 
 app.get('/api/batches', (req,res)=> {

@@ -1,0 +1,6 @@
+'use strict';
+const zone='America/Chicago';
+function chicagoWall(date){const parts=new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(date));const p=Object.fromEntries(parts.map(x=>[x.type,x.value]));return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`}
+function parseChicago(wall){if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(wall||''))throw Error('Enter a date and time for both fields.');const base=Date.parse(wall+'Z');if(!Number.isFinite(base))throw Error('Invalid date/time.');const candidates=[5,6].map(h=>base+h*3600000).filter(t=>chicagoWall(t)===wall);if(candidates.length!==1)throw Error(candidates.length?'This time occurs twice when daylight saving time ends. Choose a time outside the repeated 1 a.m. hour.':'This date/time does not exist in Central time. Choose another time.');return candidates[0]}
+function range(body){const start=parseChicago(body.start),end=parseChicago(body.end);if(end<start)throw Error('Through must be at or after From.');if(end-start>90*86400000)throw Error('Use a date range of 90 days or less.');return {start,end:end+59999,startIso:new Date(start).toISOString(),endIso:new Date(end+59999).toISOString()}}
+module.exports={chicagoWall,parseChicago,range};
