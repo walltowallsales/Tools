@@ -1,4 +1,4 @@
-# SellerChamp Tools Suite v1.27
+# SellerChamp Tools Suite v1.28
 
 One Render service and one persistent disk containing seven independently routed modules:
 
@@ -116,3 +116,18 @@ Find Orders to Recover includes paid eBay orders regardless of shipped/unshipped
 Previews expire after 15 minutes or a service restart. Re-search if a preview expires. Creation checks again for orders captured since the preview, and prevents simultaneous batch creation and replaying a successful creation. Snapshot creation reads the current saved data before writing, preserving edits made while SellerChamp lookups ran. Recovered batches carry their source time window and show Already marked shipped beside applicable orders in the printable list and pick guide. Inventory details are current at snapshot time and may reflect quantities already deducted for sold items.
 
 The normal Create Pick Batch button keeps its qualifying unshipped-order workflow. No scheduled batches are created. Existing batch, freight, forklift/Skip and consignment data remain in the same persistent disk locations. No new environment variables are required. Deploy the extracted suite files to the existing repository root.
+
+
+## v1.28 — Consignment photos, scan coverage and check payouts
+
+Orders - Consignment v1.1 adds product photos to newly scanned items; older entries can use Load photo without rescanning orders. Photos are displayed when SellerChamp supplies a usable URL.
+
+Scan ranges, completion times and results persist on the existing disk. A full-month badge requires complete successful date coverage; adjacent successful partial scans can cover a month together. Errors, stopped scans, exact-order searches and interrupted scans do not establish full-month coverage. Running scans interrupted by deployment/restart are marked Interrupted on startup. Scans made before this version were not logged, so previous coverage is unknown. Coverage describes orders checked as of that scan, and does not guarantee that later refunds, new orders or tag changes have been refreshed. Date ranges now use Central-time day boundaries.
+
+Age labels and optional filters use calendar days in America/Chicago: 0–36, 37–60 and 61+ days. These labels do not prevent payment; the operator chooses which reviewed items to pay.
+
+Select individual eligible items or select eligible items in the current view. Pay selected items opens a form with the unpaid balance and an editable Pay now amount for each. Amounts must be positive and cannot exceed the current unpaid balance. The form displays the combined check total and balances left unpaid. Enter the check number, payment date and optional note. Record check payment saves all allocations atomically. Requests with stale balances, duplicate items or reused check numbers are rejected. An identical retry of a successfully recorded request returns the existing payment without paying again.
+
+Preview PDF does not record payment. Saved payment PDFs are available under Check payments and in individual payment histories. Statements include SKU, title, order number, quantity, age group, fee/shipping calculation, Glen's share, previously paid, amount on this check, unpaid remainder, check number/date and total. Payment snapshots remain unchanged after later ledger edits. Legacy payments remain in item history; they cannot be retroactively combined into a check statement because their original check/date allocations were not recorded.
+
+The separate advertising fee entry is removed. Include any applicable additional fees in Selling / marketplace fees. Previously entered advertising-fee deductions remain on existing records so balances do not change; they are identified as prior extra fees on the ledger/PDF/CSV. No actual funds are transferred. No ShipStation credentials or integration are required. Existing consignment ledger data and the Pick recovery workflow are retained.

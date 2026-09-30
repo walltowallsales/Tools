@@ -1,6 +1,6 @@
 {
   "name": "sellerchamp-tools-suite",
-  "version": "1.27.0",
+  "version": "1.28.0",
   "private": true,
   "engines": {
     "node": ">=20"
@@ -14,7 +14,8 @@
     "test:move-search": "node scripts/test-location-search.js",
     "test:tag-sort": "node scripts/test-tag-sort.js",
     "test:consignment": "node scripts/test-consignment.js",
-    "test:pick-recovery": "node scripts/test-pick-recovery.js"
+    "test:pick-recovery": "node scripts/test-pick-recovery.js",
+    "test:consignment-payout": "node scripts/test-consignment-payout.js"
   },
   "dependencies": {
     "express": "^4.21.2",

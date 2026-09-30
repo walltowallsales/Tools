@@ -31,7 +31,7 @@ async function main(){
     assert.equal(response.status,201,body.error||'snapshot request failed');
     assert.equal(body.batch.orderCount,1);
     assert.equal(body.lines.length,1);
-    const ledgerResponse=await fetch(`${base}/consignment/api/ledger`);assert.equal(ledgerResponse.status,200,'Consignment route must be available');assert.deepEqual((await ledgerResponse.json()).rows,[]);const consignmentHtml=await (await fetch(`${base}/consignment/`)).text();assert.ok(consignmentHtml.includes('Orders - Consignment'));
+    let ledgerResponse;for(let i=0;i<100;i++){ledgerResponse=await fetch(`${base}/consignment/api/ledger`);if(ledgerResponse.ok)break;await delay(50)}assert.equal(ledgerResponse.status,200,'Consignment route must be available');assert.deepEqual((await ledgerResponse.json()).rows,[]);const consignmentHtml=await (await fetch(`${base}/consignment/`)).text();assert.ok(consignmentHtml.includes('Orders - Consignment'));
     console.log('Gateway POST-body test passed: Pick snapshot request reached the module and completed.');
   }finally{
     child.kill('SIGTERM');
