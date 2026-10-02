@@ -110,7 +110,7 @@ async function buildIndexes(){
   }catch(error){buildError=error.message||'Refresh failed.';progress.phase='error';throw error}finally{building=false}
 }
 
-app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.11.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
+app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.12.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
 app.get('/api/index-status',(req,res)=>res.json({building,error:buildError,progress}));
 app.get('/api/tags',(req,res)=>{
   const all=currentItems(),byTag=new Map();
@@ -193,6 +193,45 @@ app.post('/api/product/:id/remove-tag',async(req,res)=>{try{
   for(let attempt=0;attempt<5;attempt++){if(attempt)await sleep(1500);product=await liveProduct(req.params.id);if(!product.tags.some(x=>x.toLowerCase()===tag.toLowerCase())){product.tags=product.tags.filter(x=>x.toLowerCase()!==tag.toLowerCase());saveLiveProduct(product);return res.json({ok:true,verified:true,message:`Verified: removed the “${tag}” tag.`,product})}}
   product.tags=product.tags.filter(x=>x.toLowerCase()!==tag.toLowerCase());saveLiveProduct(product);res.status(202).json({ok:true,accepted:true,verified:false,message:`SellerChamp accepted the tag change. This item is hidden for 3 days while SellerChamp finishes updating.`,product});
 }catch(e){res.status(e.status||500).json({error:'SellerChamp tag removal failed.',details:e.data||e.message})}});
+// This combined action must never use cached tag overrides as verification.
+const shelfActions=new Set();
+async function shelfState(id){
+ const detail=await sc(`/api/products/${encodeURIComponent(id)}.json`),product=detail.product||detail;
+ if(!product||!product.id)throw Error('SellerChamp did not return this product.');
+ const data=await sc(`/api/products/${encodeURIComponent(id)}/inventory_locations`);
+ if(!Array.isArray(data.inventory_locations))throw Error('SellerChamp did not return inventory locations.');
+ return {product,locations:data.inventory_locations};
+}
+function zeroConfirmed(state){return state.product.quantity_available!==null&&state.product.quantity_available!==undefined&&Number(state.product.quantity_available)===0&&state.locations.every(x=>x.quantity_available!==null&&x.quantity_available!==undefined&&Number(x.quantity_available)===0)}
+app.post('/api/product/:id/remove-tag-zero',async(req,res)=>{
+ const id=String(req.params.id),tag=String(req.body?.tag||'').trim();
+ if(req.body?.confirmed!==true||!tag)return res.status(400).json({error:'Confirm setting all inventory quantities to zero and removing the selected tag.'});
+ if(shelfActions.has(id))return res.status(409).json({error:'This item is already being updated. Wait for that action to finish.'});
+ shelfActions.add(id);let stage='quantity';
+ try{
+  const before=await shelfState(id);
+  for(const loc of before.locations){
+   if(!loc.id)throw Error('An inventory location has no ID. No tag was removed.');
+   if(Number(loc.quantity_available)!==0)await sc(`/api/products/${encodeURIComponent(id)}/inventory_locations/${encodeURIComponent(loc.id)}`,{method:'PUT',body:JSON.stringify({inventory_location:{location:loc.location,quantity_available:0,delete_if_empty:loc.delete_if_empty!==false,priority:Number(loc.priority||1)}})});
+  }
+  // Products without inventory rows need a direct quantity update.
+  if(!before.locations.length&&Number(before.product.quantity_available)!==0)await sc(`/api/products/${encodeURIComponent(id)}`,{method:'PUT',body:JSON.stringify({product:{quantity_available:0}})});
+  let state;
+  for(let attempt=0;attempt<5;attempt++){if(attempt)await sleep(1500);state=await shelfState(id);if(zeroConfirmed(state))break}
+  if(!zeroConfirmed(state))return res.status(409).json({error:'Quantity zero was not verified. The tag has not been removed. Reload Live to check any quantities that changed.'});
+  stage='tag';const remaining=tagsOf(state.product).filter(x=>x.toLowerCase()!==tag.toLowerCase());
+  if(remaining.length!==tagsOf(state.product).length)await sc(`/api/products/${encodeURIComponent(id)}`,{method:'PUT',body:JSON.stringify({product:{tags_array:remaining}})});
+  for(let attempt=0;attempt<5;attempt++){
+   if(attempt)await sleep(1500);state=await shelfState(id);
+   if(zeroConfirmed(state)&&!tagsOf(state.product).some(x=>x.toLowerCase()===tag.toLowerCase())){
+    const product={id,sku:state.product.sku||'',title:state.product.title||'',image:imageOf(state.product),tags:tagsOf(state.product),locations:state.locations.map(x=>({id:String(x.id||''),location:String(x.location||''),quantity:Number(x.quantity_available),priority:Number(x.priority||1)})),quantity_available:0,reserve_quantity:Number(state.product.reserve_quantity||0),reserve_quantity_location:String(state.product.reserve_quantity_location||''),reserve_live_loaded:true,status:productStatus(state.product),source:'product'};
+    recordTagRemoval(id,tag);saveLiveProduct(product);
+    return res.json({ok:true,verified:true,quantity_verified:true,tag_verified:true,product,message:`Verified in SellerChamp: all inventory quantities are zero and the “${tag}” tag is removed.`});
+   }
+  }
+  return res.status(409).json({error:'Quantity was set to zero, but both changes could not be verified together. The item stays in this list. Reload Live before retrying.'});
+ }catch(e){res.status(e.status||500).json({error:stage==='quantity'?'Quantity update could not be completed or verified. The tag was not removed. Some quantities may have changed; Reload Live before retrying.':'Quantity zero was verified, but tag removal could not be completed or verified. The item stays in this list. Reload Live before retrying.',details:e.data||e.message})}finally{shelfActions.delete(id)}
+});
 app.post('/api/product/:id/end-listing',async(req,res)=>{try{
   await sc(`/api/products/${encodeURIComponent(req.params.id)}?delete_product=false&end_listing_on_marketplace=true&delete_listing_on_marketplace=false&delete_linked_products=false`,{method:'DELETE'});
   let product=null;

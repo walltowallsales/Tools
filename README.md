@@ -1,4 +1,4 @@
-# SellerChamp Tools Suite v1.28
+# SellerChamp Tools Suite v1.29
 
 One Render service and one persistent disk containing seven independently routed modules:
 
@@ -118,7 +118,7 @@ Previews expire after 15 minutes or a service restart. Re-search if a preview ex
 The normal Create Pick Batch button keeps its qualifying unshipped-order workflow. No scheduled batches are created. Existing batch, freight, forklift/Skip and consignment data remain in the same persistent disk locations. No new environment variables are required. Deploy the extracted suite files to the existing repository root.
 
 
-## v1.28 — Consignment photos, scan coverage and check payouts
+## v1.29 — Consignment photos, scan coverage and check payouts
 
 Orders - Consignment v1.1 adds product photos to newly scanned items; older entries can use Load photo without rescanning orders. Photos are displayed when SellerChamp supplies a usable URL.
 
@@ -131,3 +131,6 @@ Select individual eligible items or select eligible items in the current view. P
 Preview PDF does not record payment. Saved payment PDFs are available under Check payments and in individual payment histories. Statements include SKU, title, order number, quantity, age group, fee/shipping calculation, Glen's share, previously paid, amount on this check, unpaid remainder, check number/date and total. Payment snapshots remain unchanged after later ledger edits. Legacy payments remain in item history; they cannot be retroactively combined into a check statement because their original check/date allocations were not recorded.
 
 The separate advertising fee entry is removed. Include any applicable additional fees in Selling / marketplace fees. Previously entered advertising-fee deductions remain on existing records so balances do not change; they are identified as prior extra fees on the ledger/PDF/CSV. No actual funds are transferred. No ShipStation credentials or integration are required. Existing consignment ledger data and the Pick recovery workflow are retained.
+
+## Sort Tags: Remove Tag + Qty 0
+The small red button beside Remove Tag asks for confirmation, sets all Product inventory locations to zero, and removes only the selected tag. It verifies live Product quantity, every returned inventory location, and tag absence before hiding the Product. Failures keep the card visible; some changes may already have occurred, so use Reload Live before retrying. Reserve quantity is unchanged. Batch-only results still require SellerChamp batch editing. Verified tag removals retain the existing three-day protection against stale search results.
