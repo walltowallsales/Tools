@@ -1,4 +1,4 @@
-# SellerChamp Tools Suite v1.30
+# SellerChamp Tools Suite v1.31
 
 One Render service and one persistent disk containing seven independently routed modules:
 
@@ -118,7 +118,7 @@ Previews expire after 15 minutes or a service restart. Re-search if a preview ex
 The normal Create Pick Batch button keeps its qualifying unshipped-order workflow. No scheduled batches are created. Existing batch, freight, forklift/Skip and consignment data remain in the same persistent disk locations. No new environment variables are required. Deploy the extracted suite files to the existing repository root.
 
 
-## v1.30 — Consignment photos, scan coverage and check payouts
+## v1.31 — Consignment photos, scan coverage and check payouts
 
 Orders - Consignment v1.1 adds product photos to newly scanned items; older entries can use Load photo without rescanning orders. Photos are displayed when SellerChamp supplies a usable URL.
 
@@ -137,3 +137,6 @@ The small red button beside Remove Tag asks for confirmation, sets all Product i
 
 ## Pick order financial totals
 The order-count preview shows total_amount minus total_shipping for new qualifying orders only. Taxes remain included and fees are not deducted. Monetary values are summed in cents and different currencies are displayed separately. Missing financial fields show an unavailable message rather than an incomplete total. New batches save this financial snapshot; older batches retain their records without invented totals.
+
+## Hidden pick totals
+Order financial totals are hidden by default. Tap the subtle dot in the upper-right corner of the Create Pick Batch card to show or hide them. Refreshing the preview hides them again. This is a display preference, not a separate financial access restriction.
