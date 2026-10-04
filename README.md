@@ -1,4 +1,4 @@
-# SellerChamp Tools Suite v1.29
+# SellerChamp Tools Suite v1.30
 
 One Render service and one persistent disk containing seven independently routed modules:
 
@@ -118,7 +118,7 @@ Previews expire after 15 minutes or a service restart. Re-search if a preview ex
 The normal Create Pick Batch button keeps its qualifying unshipped-order workflow. No scheduled batches are created. Existing batch, freight, forklift/Skip and consignment data remain in the same persistent disk locations. No new environment variables are required. Deploy the extracted suite files to the existing repository root.
 
 
-## v1.29 — Consignment photos, scan coverage and check payouts
+## v1.30 — Consignment photos, scan coverage and check payouts
 
 Orders - Consignment v1.1 adds product photos to newly scanned items; older entries can use Load photo without rescanning orders. Photos are displayed when SellerChamp supplies a usable URL.
 
@@ -134,3 +134,6 @@ The separate advertising fee entry is removed. Include any applicable additional
 
 ## Sort Tags: Remove Tag + Qty 0
 The small red button beside Remove Tag asks for confirmation, sets all Product inventory locations to zero, and removes only the selected tag. It verifies live Product quantity, every returned inventory location, and tag absence before hiding the Product. Failures keep the card visible; some changes may already have occurred, so use Reload Live before retrying. Reserve quantity is unchanged. Batch-only results still require SellerChamp batch editing. Verified tag removals retain the existing three-day protection against stale search results.
+
+## Pick order financial totals
+The order-count preview shows total_amount minus total_shipping for new qualifying orders only. Taxes remain included and fees are not deducted. Monetary values are summed in cents and different currencies are displayed separately. Missing financial fields show an unavailable message rather than an incomplete total. New batches save this financial snapshot; older batches retain their records without invented totals.

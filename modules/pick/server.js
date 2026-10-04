@@ -1,4 +1,5 @@
 const express = require('express');
+const {orderFinancials}=require('./order-financials');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -306,6 +307,7 @@ function summarize(batch) {
   return {
     id: batch.id, name: batch.name, createdAt: batch.createdAt, status: batch.status,
     orderCount: batch.orderIds.length,
+    financials:batch.financials||null,
     uniqueStops: batch.lines.length,
     totalUnits: batch.lines.reduce((s,l)=>s+n(l.quantityToPick),0),
     pickedStops: batch.lines.filter(lineResolved).length,
@@ -323,7 +325,7 @@ app.get('/api/preview', async (req,res) => {
     const used = usedOrderIds(db);
     const orders = await fetchAllQualifyingOrders();
     const fresh = orders.filter(o => !used.has(str(o.id)));
-    res.json({ qualifyingOrders: orders.length, newOrders: fresh.length, excludedAlreadyBatched: orders.length-fresh.length, totalUnits: fresh.reduce((s,o)=>s+(o.items||[]).reduce((x,i)=>x+n(i.quantity),0),0) });
+    res.json({ financials:orderFinancials(fresh), qualifyingOrders: orders.length, newOrders: fresh.length, excludedAlreadyBatched: orders.length-fresh.length, totalUnits: fresh.reduce((s,o)=>s+(o.items||[]).reduce((x,i)=>x+n(i.quantity),0),0) });
   } catch(e) { res.status(500).json({ error:e.message }); }
 });
 
@@ -331,7 +333,7 @@ function saveNewBatch(orders,lines,body={},recoveryWindow=null){
   const db=readDb(),used=usedOrderIds(db);
   if(orders.some(o=>used.has(str(o.id))))throw Error('One of these orders was added to a batch while the snapshot was building. Refresh the preview and try again.');
   const createdAt=nowIso(),localLabel=new Date(createdAt).toLocaleString('en-US',{timeZone:'America/Chicago',month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'});
-  const batch={id:uid(),name:str(body.name).trim()||(recoveryWindow?'Recovered · ':'')+localLabel,createdAt,status:'not_started',currentIndex:0,orderIds:orders.map(o=>str(o.id)),orderNumbers:orders.map(o=>str(o.order_number||o.purchase_number||o.id)),lines};
+  const batch={id:uid(),name:str(body.name).trim()||(recoveryWindow?'Recovered · ':'')+localLabel,createdAt,status:'not_started',currentIndex:0,financials:orderFinancials(orders),orderIds:orders.map(o=>str(o.id)),orderNumbers:orders.map(o=>str(o.order_number||o.purchase_number||o.id)),lines};
   if(recoveryWindow)batch.recoveryWindow=recoveryWindow;
   db.batches.unshift(batch);writeDb(db);return batch;
 }
