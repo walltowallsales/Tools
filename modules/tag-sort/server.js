@@ -240,14 +240,48 @@ app.post('/api/product/:id/end-listing',async(req,res)=>{try{
 }catch(e){res.status(e.status||500).json({error:'SellerChamp could not end this listing.',details:e.data||e.message})}});
 
 // FLOOR uses the existing shared index and SellerChamp request queue.
+let floorScan={checking:false,checked:0,total:0,results:[],error:'',finished_at:null};
+const floorStock=row=>(row.locations||[]).some(x=>String(x.location||'').trim().toUpperCase()==='FLOOR'&&Number(x.quantity)>0);
+async function scanFloor(){
+ floorScan={checking:true,checked:0,total:0,results:[],error:'',finished_at:null};
+ try{
+  const all=currentItems(),products=all.filter(x=>x.source==='product'),seen=new Set();
+  const candidates=all.filter(x=>{const key=`${x.source}|${x.manifest_id||''}|${x.id}`;if(seen.has(key)||!floorStock(x))return false;seen.add(key);return true});
+  floorScan.total=candidates.length;const manifests=new Map();
+  for(const row of candidates){
+   try{
+    if(row.source==='product'){
+     const state=await shelfState(row.id);
+     const live={...row,locations:state.locations.map(x=>({id:String(x.id),location:String(x.location||''),quantity:Number(x.quantity_available||0)})),quantity_available:Number(state.product.quantity_available||0)};
+     saveLiveProduct(live);if(floorStock(live)&&live.quantity_available>0)floorScan.results.push(live);
+    }else{
+     // A historical Batch is never a second inventory source for a Product.
+     const linked=products.some(p=>String(p.id)===String(row.product_id||'')||(p.sku&&row.sku&&String(p.sku).trim().toLowerCase()===String(row.sku).trim().toLowerCase()));
+     if(linked||row.product_id)continue;
+     const key=String(row.manifest_id);
+     if(!manifests.has(key)){
+      const listings=[];
+      for(let page=1;page<=100;page++){const data=await sc(`/api/manifests/${encodeURIComponent(key)}/product_listings?page=${page}&page_size=100`);if(!Array.isArray(data.product_listings))throw Error('Batch inventory could not be verified.');listings.push(...data.product_listings);if(data.product_listings.length<100)break}
+      manifests.set(key,listings);
+     }
+     const live=manifests.get(key).find(x=>String(x.id)===String(row.id));
+     if(!live||live.product_id)continue;
+     const status=String(live.marketplace_status||live.listing_status||live.status||'').trim().toLowerCase().replace(/[ -]+/g,'_');
+     // Unknown/submitted/inactive Batch quantities may be the original received count.
+     if(!['not_submitted','unsubmitted','draft'].includes(status)||live.submitted===true||live.submitted_at)continue;
+     const location=String(live.location??live.item_location??'');
+     const fresh={...row,locations:[{location,quantity:Number(live.quantity_available??live.quantity??0)}]};
+     if(floorStock(fresh))floorScan.results.push(fresh);
+    }
+   }catch(e){floorScan.error='Some items could not be verified and were excluded. '+e.message}
+   finally{floorScan.checked++}
+  }
+  floorScan.results.sort((a,b)=>natural(a.sku,b.sku));floorScan.finished_at=new Date().toISOString();
+ }catch(e){floorScan.error=e.message}finally{floorScan.checking=false}
+}
 app.get('/api/floor',(req,res)=>{
- const seen=new Set();const results=currentItems().filter(row=>{
-  const key=`${row.source}|${row.manifest_id||''}|${row.id}`;
-  if(seen.has(key)||!(row.locations||[]).some(x=>String(x.location||'').trim().toUpperCase()==='FLOOR'&&Number(x.quantity)>0))return false;
-  seen.add(key);return true;
- });
- results.sort((a,b)=>natural(a.sku,b.sku));
- res.json({results,count:results.length,building,progress,error:buildError});
+ if((req.query.start==='1'||!floorScan.finished_at)&&!floorScan.checking)scanFloor();
+ res.json({...floorScan,count:floorScan.results.length,building,progress});
 });
 app.get('/api/floor/product/:id/live',async(req,res)=>{try{
  const state=await shelfState(req.params.id);
