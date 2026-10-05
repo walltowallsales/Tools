@@ -247,6 +247,7 @@ async function scanFloor(){
  try{
   const all=currentItems(),products=all.filter(x=>x.source==='product'),seen=new Set();
   const candidates=all.filter(x=>{const key=`${x.source}|${x.manifest_id||''}|${x.id}`;if(seen.has(key)||!floorStock(x))return false;seen.add(key);return true});
+  candidates.sort((a,b)=>(a.source==='product'?0:1)-(b.source==='product'?0:1));
   floorScan.total=candidates.length;const manifests=new Map();
   for(const row of candidates){
    try{
@@ -255,9 +256,6 @@ async function scanFloor(){
      const live={...row,locations:state.locations.map(x=>({id:String(x.id),location:String(x.location||''),quantity:Number(x.quantity_available||0)})),quantity_available:Number(state.product.quantity_available||0)};
      saveLiveProduct(live);if(floorStock(live)&&live.quantity_available>0)floorScan.results.push(live);
     }else{
-     // A historical Batch is never a second inventory source for a Product.
-     const linked=products.some(p=>String(p.id)===String(row.product_id||'')||(p.sku&&row.sku&&String(p.sku).trim().toLowerCase()===String(row.sku).trim().toLowerCase()));
-     if(linked||row.product_id)continue;
      const key=String(row.manifest_id);
      if(!manifests.has(key)){
       const listings=[];
@@ -265,13 +263,19 @@ async function scanFloor(){
       manifests.set(key,listings);
      }
      const live=manifests.get(key).find(x=>String(x.id)===String(row.id));
-     if(!live||live.product_id)continue;
+     if(!live)continue;
      const status=String(live.marketplace_status||live.listing_status||live.status||'').trim().toLowerCase().replace(/[ -]+/g,'_');
      // Unknown/submitted/inactive Batch quantities may be the original received count.
      if(!['not_submitted','unsubmitted','draft'].includes(status)||live.submitted===true||live.submitted_at)continue;
      const location=String(live.location??live.item_location??'');
      const fresh={...row,locations:[{location,quantity:Number(live.quantity_available??live.quantity??0)}]};
-     if(floorStock(fresh))floorScan.results.push(fresh);
+     // A Product placeholder can exist before submission with zero stock.
+     // Explicit live Batch status decides whether its inventory is usable.
+     const duplicate=floorScan.results.some(p=>p.source==='product'&&(
+      (live.product_id&&String(p.id)===String(live.product_id))||
+      (p.sku&&fresh.sku&&String(p.sku).trim().toLowerCase()===String(fresh.sku).trim().toLowerCase())
+     ));
+     if(floorStock(fresh)&&!duplicate)floorScan.results.push(fresh);
     }
    }catch(e){floorScan.error='Some items could not be verified and were excluded. '+e.message}
    finally{floorScan.checked++}
