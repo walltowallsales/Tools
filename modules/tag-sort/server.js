@@ -238,6 +238,40 @@ app.post('/api/product/:id/end-listing',async(req,res)=>{try{
   for(let attempt=0;attempt<5;attempt++){await sleep(attempt===0?1800:2500);product=await liveProduct(req.params.id);if(['inactive','ended','ended_listing','not_listed','removed'].includes(product.status)){saveLiveProduct(product);return res.json({ok:true,verified:true,message:`Verified: listing status is ${product.status.toUpperCase()}.`,product})}}
   return res.status(409).json({error:`SellerChamp accepted the request, but still reports ${String(product?.status||'unknown').toUpperCase()}. No verified success was reported.`});
 }catch(e){res.status(e.status||500).json({error:'SellerChamp could not end this listing.',details:e.data||e.message})}});
+
+// FLOOR uses the existing shared index and SellerChamp request queue.
+app.get('/api/floor',(req,res)=>{
+ const seen=new Set();const results=currentItems().filter(row=>{
+  const key=`${row.source}|${row.manifest_id||''}|${row.id}`;
+  if(seen.has(key)||!(row.locations||[]).some(x=>String(x.location||'').trim().toUpperCase()==='FLOOR'))return false;
+  seen.add(key);return true;
+ });
+ results.sort((a,b)=>natural(a.sku,b.sku));
+ res.json({results,count:results.length,building,progress,error:buildError});
+});
+app.get('/api/floor/product/:id/live',async(req,res)=>{try{
+ const state=await shelfState(req.params.id);
+ const product={id:req.params.id,sku:state.product.sku||'',title:titlesOf(state.product)[0]||'',image:imageOf(state.product),source:'product',locations:state.locations.map(x=>({id:String(x.id),location:String(x.location||''),quantity:Number(x.quantity_available||0)}))};
+ saveLiveProduct(product);res.json({product});
+}catch(e){res.status(e.status||500).json({error:'Could not verify current inventory locations.',details:e.message})}});
+app.get('/api/floor/batch/:manifest/:id/live',async(req,res)=>{try{
+ let found=null;
+ for(let page=1;page<=100;page++){
+  const data=await sc(`/api/manifests/${encodeURIComponent(req.params.manifest)}/product_listings?page=${page}&page_size=100`);
+  if(!Array.isArray(data.product_listings))throw Error('SellerChamp did not return batch listings.');
+  found=data.product_listings.find(x=>String(x.id)===String(req.params.id));if(found||data.product_listings.length<100)break;
+ }
+ if(!found)return res.status(404).json({error:'This batch item could not be found. It has not been removed from your list.'});
+ if(found.location===undefined&&found.item_location===undefined)throw Error('SellerChamp did not return this batch item’s location.');
+ const location=String(found.location??found.item_location??'');
+ const product={id:found.id,manifest_id:req.params.manifest,source:'batch',sku:found.sku||'',title:titlesOf(found)[0]||'',image:imageOf(found),locations:[{location,quantity:Number(found.quantity_available??found.quantity??0)}]};
+ const index=load(BATCH_INDEX);index.items=index.items.map(x=>String(x.id)===String(found.id)&&String(x.manifest_id)===String(req.params.manifest)?{...x,...product}:x);
+ let metadata={};try{metadata=JSON.parse(fs.readFileSync(BATCH_INDEX,'utf8'))}catch{}
+ write(BATCH_INDEX,{...metadata,items:index.items,updated_at:new Date().toISOString()},'floor');
+ activeBatches=activeBatches.map(x=>String(x.id)===String(found.id)&&String(x.manifest_id)===String(req.params.manifest)?{...x,...product}:x);
+ res.json({product});
+}catch(e){res.status(e.status||500).json({error:'Could not verify this batch location.',details:e.message})}});
+
 app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
 app.listen(PORT,()=>{console.log(`SellerChamp Tag Location Sorter running on ${PORT}`);const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);let completeBatchIndex=false;try{const saved=JSON.parse(fs.readFileSync(BATCH_INDEX,'utf8'));completeBatchIndex=saved.includes_untagged===true&&saved.includes_listing_titles===true}catch{}if(!p.items.length||!b.items.length||!completeBatchIndex)buildIndexes().catch(error=>console.error('Initial tag index refresh failed:',error.message))});
 setInterval(()=>{if(!building)buildIndexes().catch(error=>console.error('Scheduled tag index refresh failed:',error.message))},24*60*60*1000).unref();

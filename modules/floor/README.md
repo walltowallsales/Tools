@@ -1,0 +1,2 @@
+# Item - Relocate FLOOR Items
+Find exact FLOOR locations (case insensitive) across the shared Product and Batch index. Product locations load live before editing; moves preserve quantity and require server verification before disappearing. Batch items open the specific SellerChamp batch; Check Again verifies the updated location. Direct batch mutation remains disabled for safety. No new full scan is started by this module.

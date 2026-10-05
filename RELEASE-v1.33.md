@@ -1,0 +1,2 @@
+# Suite v1.33
+Adds Item - Relocate FLOOR Items to the dashboard. Includes all previous suite features. Uses the existing shared inventory index and request queue. Products can move from FLOOR in-app with live verification. Batch items open their specific SellerChamp batch for location editing and can be rechecked in the module. Existing persistent data and Render settings are retained. Deploy as the previous complete rebuild.
