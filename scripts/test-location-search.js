@@ -138,6 +138,7 @@ async function main() {
     response=await fetch(`${base}/api/lookup?code=2510-42859&productId=p-old`);body=await response.json();
     assert.equal(response.status,200);
     assert.equal(body.product.sku,'2510-42859');
+    response=await fetch(`${base}/api/lookup?code=2609-44261&productId=p2`);const linked=await response.json();assert.equal(linked.product.batch_found,true,'Cached Batch association must be attached to fast Product lookup');assert.ok(linked.product.sellerchamp_batch_url.includes('manifest-1'));assert.equal(linked.product.workflow,'product','Batch association must not change inventory workflow');
     assert.equal(body.product.locations[0].location,'A0101','selected index result must reload live locations');
     console.log('Move search test passed: local index, live fallback, and live selected-product details.');
   } finally {

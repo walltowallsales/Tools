@@ -431,10 +431,25 @@ async function lookupLegacy(code) {
 }
 
 
+function indexedBatch(code){
+ try{const saved=JSON.parse(fs.readFileSync(BATCH_INDEX_FILE,'utf8')),needle=String(code||'').trim().toLowerCase();return (saved.items||[]).find(x=>x.manifest_id&&[x.sku,x.upc].some(v=>v&&String(v).trim().toLowerCase()===needle))||null}catch{return null}
+}
+function attachBatchLink(product,row){
+ if(!row)return product;
+ product.batch_found=true;product.batch_lookup_skipped=false;product.manifest_id=row.manifest_id;product.manifest_name=row.manifest_name||'';
+ product.sellerchamp_batch_url=`https://app.sellerchamp.com/manifests/${encodeURIComponent(row.manifest_id)}?product_listing%5Bquery%5D=${encodeURIComponent(product.sku||row.sku||'')}`;
+ return product;
+}
 async function findManifestForCode(code) {
   const needle = String(code || '').trim().toLowerCase();
   if (!needle) return null;
 
+  const indexed=indexedBatch(code);
+  if(indexed){
+   for(let page=1;page<=100;page++){
+    try{const data=await scFetch(`/api/manifests/${encodeURIComponent(indexed.manifest_id)}/product_listings?page=${page}&page_size=100`);let rows=data.product_listings||data.product_listing||[];if(!Array.isArray(rows))rows=[rows];const match=rows.find(x=>[x.sku,x.alt_sku,x.upc,x.barcode,x.custom_catalogue_sku,x.catalogue_sku].some(v=>v&&String(v).trim().toLowerCase()===needle));if(match)return {manifest_id:indexed.manifest_id,manifest_name:indexed.manifest_name||'',listing:match,url:`https://app.sellerchamp.com/manifests/${encodeURIComponent(indexed.manifest_id)}?product_listing%5Bquery%5D=${encodeURIComponent(code)}`};if(rows.length<100)break}catch{break}
+   }
+  }
   // Marketplace Batches are SellerChamp Manifests. Search manifests newest-first,
   // then inspect each manifest's documented product_listings endpoint.
   const pageSize = 100;
@@ -565,7 +580,7 @@ app.get('/api/status', async (req, res) => {
     }
     res.json({
       ok: true,
-      version: '2.41.0',
+      version: '2.42.0',
       pinRequired: !!APP_PIN,
       accounts: [],
       search_index: {
@@ -681,13 +696,14 @@ app.get('/api/lookup', async (req, res) => {
         product.location_source = 'product';
         product.batch_found = false;
         product.batch_lookup_skipped = true;
+        attachBatchLink(product,indexedBatch(product.sku||code));
         return res.json({ product });
       }
     }
 
     // Partial searches use this fast pass first. Do not scan every marketplace
     // Batch unless an exact result is selected or no Product search result exists.
-    if (req.query.skipBatch === '1') {
+    if (req.query.skipBatch === '1' && !/^\d{4}-\d{5}$/.test(code)) {
       return res.status(404).json({ error: `No exact SellerChamp Product matched “${code}”.` });
     }
 
