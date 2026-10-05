@@ -97,7 +97,7 @@ async function buildIndexes(){
         if(!manifest?.id)continue;
         for(let listingPage=1;listingPage<=100;listingPage++){
           const listingData=await sc(`/api/manifests/${encodeURIComponent(manifest.id)}/product_listings?page=${listingPage}&page_size=100`);let listings=listingData.product_listings||[];if(!Array.isArray(listings))listings=listings?[listings]:[];
-          for(const row of listings){const tags=tagsOf(row);const key=`${manifest.id}|${row.id||row.sku}`;if(batchSeen.has(key))continue;batchSeen.add(key);batches.push({id:row.id||'',product_id:row.product_id||'',manifest_id:manifest.id,manifest_name:manifest.name||'',sku:String(row.sku||row.custom_catalogue_sku||row.catalogue_sku||''),upc:String(row.upc||row.barcode||''),title:String(titlesOf(row)[0]||''),search_titles:titlesOf(row),image:imageOf(row),quantity_available:Number(row.quantity_available??row.quantity??0),tags,locations:[{location:String(row.location||row.item_location||''),quantity:Number(row.quantity_available??row.quantity??0)}],status:String(manifest.status||''),source:'batch',url:`https://app.sellerchamp.com/manifests/${encodeURIComponent(manifest.id)}?product_listing%5Bquery%5D=${encodeURIComponent(row.sku||'')}`});progress.batches=batches.length}
+          for(const row of listings){const tags=tagsOf(row);const key=`${manifest.id}|${row.id||row.sku}`;if(batchSeen.has(key))continue;batchSeen.add(key);batches.push({id:row.id||'',product_id:row.product_id||'',manifest_id:manifest.id,manifest_name:manifest.name||'',sku:String(row.sku||row.custom_catalogue_sku||row.catalogue_sku||''),upc:String(row.upc||row.barcode||''),title:String(titlesOf(row)[0]||''),search_titles:titlesOf(row),image:imageOf(row),quantity_available:Number(row.quantity??row.quantity_available??0),tags,locations:[{location:String(row.location||row.item_location||''),quantity:Number(row.quantity??row.quantity_available??0)}],status:String(manifest.status||''),source:'batch',url:`https://app.sellerchamp.com/manifests/${encodeURIComponent(manifest.id)}?product_listing%5Bquery%5D=${encodeURIComponent(row.sku||'')}`});progress.batches=batches.length}
           if(listings.length<100)break;
         }
         // Publish completed manifests so searches work while a long rebuild continues.
@@ -246,7 +246,7 @@ async function scanFloor(){
  floorScan={checking:true,checked:0,total:0,results:[],error:'',finished_at:null};
  try{
   const all=currentItems(),products=all.filter(x=>x.source==='product'),seen=new Set();
-  const candidates=all.filter(x=>{const key=`${x.source}|${x.manifest_id||''}|${x.id}`;if(seen.has(key)||!floorStock(x))return false;seen.add(key);return true});
+  const candidates=all.filter(x=>{const key=`${x.source}|${x.manifest_id||''}|${x.id}`;if(seen.has(key)||!(x.source==='batch'?(x.locations||[]).some(l=>String(l.location||'').trim().toUpperCase()==='FLOOR'):floorStock(x)))return false;seen.add(key);return true});
   candidates.sort((a,b)=>(a.source==='product'?0:1)-(b.source==='product'?0:1));
   floorScan.total=candidates.length;const manifests=new Map();
   for(const row of candidates){
@@ -264,11 +264,14 @@ async function scanFloor(){
      }
      const live=manifests.get(key).find(x=>String(x.id)===String(row.id));
      if(!live)continue;
-     const status=String(live.marketplace_status||live.listing_status||live.status||'').trim().toLowerCase().replace(/[ -]+/g,'_');
+     const status=String(live.list_status||live.marketplace_status||live.listing_status||live.status||'').trim().toLowerCase().replace(/[ -]+/g,'_');
      // Unknown/submitted/inactive Batch quantities may be the original received count.
-     if(!['not_submitted','unsubmitted','draft'].includes(status)||live.submitted===true||live.submitted_at)continue;
+     const explicitDraft=['not_submitted','unsubmitted','draft'].includes(status);
+     const knownNotListed=live.quantity_listed!==undefined&&live.quantity_listed!==null&&Number(live.quantity_listed)===0;
+     const negativeStatus=['active','inactive','submitted','ended','deleted','removed'].includes(status);
+     if(negativeStatus||Number(live.quantity_listed)>0||live.submitted===true||live.submitted_at||(!explicitDraft&&!knownNotListed))continue;
      const location=String(live.location??live.item_location??'');
-     const fresh={...row,locations:[{location,quantity:Number(live.quantity_available??live.quantity??0)}]};
+     const fresh={...row,locations:[{location,quantity:Number(live.quantity??live.quantity_available??0)}]};
      // A Product placeholder can exist before submission with zero stock.
      // Explicit live Batch status decides whether its inventory is usable.
      const duplicate=floorScan.results.some(p=>p.source==='product'&&(
@@ -285,7 +288,7 @@ async function scanFloor(){
 }
 app.get('/api/floor',(req,res)=>{
  if((req.query.start==='1'||!floorScan.finished_at)&&!floorScan.checking)scanFloor();
- res.json({...floorScan,count:floorScan.results.length,building,progress});
+ const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({...floorScan,count:floorScan.results.length,building,progress,product_index_updated_at:p.updated_at,batch_index_updated_at:b.updated_at});
 });
 app.get('/api/floor/product/:id/live',async(req,res)=>{try{
  const state=await shelfState(req.params.id);
@@ -302,7 +305,7 @@ app.get('/api/floor/batch/:manifest/:id/live',async(req,res)=>{try{
  if(!found)return res.status(404).json({error:'This batch item could not be found. It has not been removed from your list.'});
  if(found.location===undefined&&found.item_location===undefined)throw Error('SellerChamp did not return this batch item’s location.');
  const location=String(found.location??found.item_location??'');
- const product={id:found.id,manifest_id:req.params.manifest,source:'batch',sku:found.sku||'',title:titlesOf(found)[0]||'',image:imageOf(found),locations:[{location,quantity:Number(found.quantity_available??found.quantity??0)}]};
+ const product={id:found.id,manifest_id:req.params.manifest,source:'batch',sku:found.sku||'',title:titlesOf(found)[0]||'',image:imageOf(found),locations:[{location,quantity:Number(found.quantity??found.quantity_available??0)}]};
  const index=load(BATCH_INDEX);index.items=index.items.map(x=>String(x.id)===String(found.id)&&String(x.manifest_id)===String(req.params.manifest)?{...x,...product}:x);
  let metadata={};try{metadata=JSON.parse(fs.readFileSync(BATCH_INDEX,'utf8'))}catch{}
  write(BATCH_INDEX,{...metadata,items:index.items,updated_at:new Date().toISOString()},'floor');
