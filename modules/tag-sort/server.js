@@ -66,6 +66,7 @@ async function liveProduct(id){
   return {id:product.id||id,sku:product.sku||'',title:product.title||'',image:imageOf(product),tags:tagsOf(product),locations,quantity_available:locations.length?locations.reduce((sum,x)=>sum+x.quantity,0):Number(product.quantity_available||0),reserve_quantity:Number(product.reserve_quantity||0),reserve_quantity_location:String(product.reserve_quantity_location||''),reserve_live_loaded:true,status:productStatus(product),source:'product'};
 }
 function saveLiveProduct(live){
+  if(typeof floorScan!=='undefined'&&floorScan.finished_at){floorScan.results=floorScan.results.map(x=>x.source==='product'&&String(x.id)===String(live.id)?{...x,...live}:x).filter(x=>x.source!=='product'||floorStock(x));saveFloorScan()}
   live=applyTagOverrides(live);const index=load(PRODUCT_INDEX),id=String(live.id||'');let changed=false;
   index.items=index.items.map(row=>{if(String(row.id)!==id)return row;changed=true;return {...row,...live,sku:row.sku||live.sku,upc:row.upc||'',source:'product'}});
   if(changed)write(PRODUCT_INDEX,{updated_at:new Date().toISOString(),items:index.items},'live');
@@ -240,7 +241,11 @@ app.post('/api/product/:id/end-listing',async(req,res)=>{try{
 }catch(e){res.status(e.status||500).json({error:'SellerChamp could not end this listing.',details:e.data||e.message})}});
 
 // FLOOR uses the existing shared index and SellerChamp request queue.
+const FLOOR_CACHE=path.join(DATA_DIR,'floor-verified-results.json');
 let floorScan={checking:false,checked:0,total:0,results:[],error:'',finished_at:null};
+try{const cached=JSON.parse(fs.readFileSync(FLOOR_CACHE,'utf8'));if(Array.isArray(cached.results)&&cached.finished_at)floorScan={...floorScan,...cached,checking:false}}catch{}
+function saveFloorScan(){write(FLOOR_CACHE,floorScan,'floor')}
+
 const floorStock=row=>(row.locations||[]).some(x=>String(x.location||'').trim().toUpperCase()==='FLOOR'&&Number(x.quantity)>0);
 async function scanFloor(){
  floorScan={checking:true,checked:0,total:0,results:[],error:'',finished_at:null};
@@ -284,7 +289,7 @@ async function scanFloor(){
    finally{floorScan.checked++}
   }
   floorScan.results.sort((a,b)=>natural(a.sku,b.sku));floorScan.finished_at=new Date().toISOString();
- }catch(e){floorScan.error=e.message}finally{floorScan.checking=false}
+ }catch(e){floorScan.error=e.message}finally{floorScan.checking=false;if(floorScan.finished_at)saveFloorScan()}
 }
 app.get('/api/floor',(req,res)=>{
  if((req.query.start==='1'||!floorScan.finished_at)&&!floorScan.checking)scanFloor();
@@ -310,6 +315,7 @@ app.get('/api/floor/batch/:manifest/:id/live',async(req,res)=>{try{
  let metadata={};try{metadata=JSON.parse(fs.readFileSync(BATCH_INDEX,'utf8'))}catch{}
  write(BATCH_INDEX,{...metadata,items:index.items,updated_at:new Date().toISOString()},'floor');
  activeBatches=activeBatches.map(x=>String(x.id)===String(found.id)&&String(x.manifest_id)===String(req.params.manifest)?{...x,...product}:x);
+ floorScan.results=floorScan.results.map(x=>x.source==='batch'&&String(x.id)===String(product.id)&&String(x.manifest_id)===String(product.manifest_id)?{...x,...product}:x).filter(floorStock);if(floorScan.finished_at)saveFloorScan();
  res.json({product});
 }catch(e){res.status(e.status||500).json({error:'Could not verify this batch location.',details:e.message})}});
 
