@@ -565,7 +565,7 @@ app.get('/api/status', async (req, res) => {
     }
     res.json({
       ok: true,
-      version: '2.40.0',
+      version: '2.41.0',
       pinRequired: !!APP_PIN,
       accounts: [],
       search_index: {

@@ -59,7 +59,7 @@ $('refreshIndex').onclick=async()=>{
 
 $('savePin').onclick=()=>{state.pin=$('pin').value.trim();sessionStorage.setItem('appPin',state.pin);checkStatus();};
 $('lookup').addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();findItem();} });
-$('findBtn').onclick=findItem;
+$('findBtn').onclick=()=>findItem();
 $('openProductBtn').onclick=()=>{const u=$('openProductBtn').dataset.url;if(u)window.open(u,'_blank','noopener');};
 $('openBatchBtn').onclick=async()=>{
   const u=$('openBatchBtn').dataset.url;
