@@ -243,7 +243,7 @@ app.post('/api/product/:id/end-listing',async(req,res)=>{try{
 app.get('/api/floor',(req,res)=>{
  const seen=new Set();const results=currentItems().filter(row=>{
   const key=`${row.source}|${row.manifest_id||''}|${row.id}`;
-  if(seen.has(key)||!(row.locations||[]).some(x=>String(x.location||'').trim().toUpperCase()==='FLOOR'))return false;
+  if(seen.has(key)||!(row.locations||[]).some(x=>String(x.location||'').trim().toUpperCase()==='FLOOR'&&Number(x.quantity)>0))return false;
   seen.add(key);return true;
  });
  results.sort((a,b)=>natural(a.sku,b.sku));
