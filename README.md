@@ -1,4 +1,4 @@
-# SellerChamp Tools Suite v1.44
+# SellerChamp Tools Suite v1.45
 
 One Render service and one persistent disk containing nine independently routed modules:
 
@@ -10,7 +10,7 @@ One Render service and one persistent disk containing nine independently routed 
 6. **Orders - Returns** (`/returns/`) — Returns v2.48
 
 7. **Orders - Consignment** — `/consignment/`
-8. **Item - Relocate FLOOR Items** — `/floor/` · v1.7
+8. **Item - Relocate FLOOR Items** — `/floor/` · v1.8
 9. **Item - Freight Shipping Audit** — `/freight-audit/` · v1.0
 
 See **FREIGHT-AUDIT-SETUP.md** for eBay credentials and audit instructions.

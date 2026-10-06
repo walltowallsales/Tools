@@ -284,6 +284,33 @@ try{const cached=JSON.parse(fs.readFileSync(FLOOR_CACHE,'utf8'));if(Array.isArra
 function saveFloorScan(){write(FLOOR_CACHE,floorScan,'floor')}
 
 const floorStock=row=>(row.locations||[]).some(x=>String(x.location||'').trim().toUpperCase()==='FLOOR'&&Number(x.quantity)>0);
+// Resolve a former Batch item against current Product inventory before trusting its historical location.
+async function promotedFloorProduct(row){
+ const sku=String(row.sku||'').trim();
+ if(!sku)return null;
+ const data=await sc(`/api/products?sku=${encodeURIComponent(sku)}&page=1&page_size=100`);
+ if(!Array.isArray(data.products))throw Error('Could not verify whether this Batch item has become a Product.');
+ if(data.products.length>=100)throw Error('Product lookup returned too many matches; this Batch item needs review.');
+ let matches=data.products.filter(p=>String(p.sku||'').trim().toLowerCase()===sku.toLowerCase());
+ if(row.marketplace_account_id)matches=matches.filter(p=>String(p.marketplace_account_id||'')===String(row.marketplace_account_id));
+ const verified=[];
+ for(const p of matches){
+  if(!p.id)continue;
+  const state=await shelfState(p.id),status=String(state.product.marketplace_status||state.product.status||'').toLowerCase();
+  if(state.locations.some(x=>x.location===undefined||x.quantity_available===undefined||x.quantity_available===null||!Number.isFinite(Number(x.quantity_available))))throw Error('Current Product inventory is incomplete; this item has not been removed.');
+  const locations=state.locations.map(x=>({id:String(x.id),location:String(x.location||''),quantity:Number(x.quantity_available)}));
+  const real=status==='active'||locations.some(x=>x.quantity>0)||Boolean(state.product.marketplace_id&&['inactive','ended','submitted'].includes(status));
+  if(real)verified.push({id:state.product.id,source:'product',sku:state.product.sku||sku,title:titlesOf(state.product)[0]||row.title||'',image:imageOf(state.product)||row.image||'',locations,quantity_available:locations.reduce((n,x)=>n+x.quantity,0),status});
+ }
+ if(verified.length>1){const linked=verified.find(p=>row.product_id&&String(p.id)===String(row.product_id));if(linked)return linked;throw Error('Multiple Products have this SKU. Cannot safely choose the current inventory.');}
+ return verified[0]||null;
+}
+function replaceFloorBatch(row,product){
+ floorScan.results=floorScan.results.filter(x=>!(x.source==='batch'&&String(x.id)===String(row.id)&&String(x.manifest_id)===String(row.manifest_id))&&!(x.source==='product'&&String(x.id)===String(product.id)));
+ if(floorStock(product))floorScan.results.push(product);
+ saveLiveProduct(product);
+ if(floorScan.finished_at)saveFloorScan();
+}
 async function scanFloor(){
  floorScan={checking:true,checked:0,total:0,results:[],error:'',finished_at:null};
  try{
@@ -298,6 +325,8 @@ async function scanFloor(){
      const live={...row,locations:state.locations.map(x=>({id:String(x.id),location:String(x.location||''),quantity:Number(x.quantity_available||0)})),quantity_available:Number(state.product.quantity_available||0)};
      saveLiveProduct(live);if(floorStock(live)&&live.quantity_available>0)floorScan.results.push(live);
     }else{
+     const promoted=await promotedFloorProduct(row);
+     if(promoted){replaceFloorBatch(row,promoted);continue;}
      const key=String(row.manifest_id);
      if(!manifests.has(key)){
       const listings=[];
@@ -338,6 +367,8 @@ app.get('/api/floor/product/:id/live',async(req,res)=>{try{
  saveLiveProduct(product);res.json({product});
 }catch(e){res.status(e.status||500).json({error:'Could not verify current inventory locations.',details:e.message})}});
 app.get('/api/floor/batch/:manifest/:id/live',async(req,res)=>{try{
+ const original=currentItems().find(x=>x.source==='batch'&&String(x.id)===String(req.params.id)&&String(x.manifest_id)===String(req.params.manifest))||floorScan.results.find(x=>x.source==='batch'&&String(x.id)===String(req.params.id)&&String(x.manifest_id)===String(req.params.manifest));
+ if(original){const promoted=await promotedFloorProduct(original);if(promoted){replaceFloorBatch(original,promoted);return res.json({product:promoted,promoted:true});}}
  let found=null;
  for(let page=1;page<=100;page++){
   const data=await batchFetch(`/api/manifests/${encodeURIComponent(req.params.manifest)}/product_listings?page=${page}&page_size=100`);
@@ -345,6 +376,9 @@ app.get('/api/floor/batch/:manifest/:id/live',async(req,res)=>{try{
   found=data.product_listings.find(x=>String(x.id)===String(req.params.id));if(found||data.product_listings.length<100)break;
  }
  if(!found)return res.status(404).json({error:'This batch item could not be found. It has not been removed from your list.'});
+ if(!original){const promoted=await promotedFloorProduct({...found,manifest_id:req.params.manifest});if(promoted){replaceFloorBatch({...found,manifest_id:req.params.manifest},promoted);return res.json({product:promoted,promoted:true});}}
+ const foundStatus=String(found.list_status||found.marketplace_status||found.status||'').toLowerCase();
+ if(['active','submitted'].includes(foundStatus)||Number(found.quantity_listed)>0||found.submitted===true||found.submitted_at)throw Error('This Batch item has been submitted, but current Product inventory is not available yet. Try Check Again shortly.');
  if(found.location===undefined&&found.item_location===undefined)throw Error('SellerChamp did not return this batch item’s location.');
  const location=String(found.location??found.item_location??'');
  const product={id:found.id,manifest_id:req.params.manifest,source:'batch',sku:found.sku||'',title:titlesOf(found)[0]||'',image:await batchPhoto(found,{product_id:found.product_id,sku:found.sku},currentItems().filter(x=>x.source==='product')),locations:[{location,quantity:Number(found.quantity??found.quantity_available??0)}]};
