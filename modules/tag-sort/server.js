@@ -29,6 +29,28 @@ async function scDirect(endpoint,options={}){
   const error=new Error('SellerChamp is still rate-limiting the refresh. Wait five minutes and try again.');error.status=429;throw error;
 }
 function sc(endpoint,options={}){const job=scQueue.then(()=>scDirect(endpoint,options));scQueue=job.catch(()=>{});return job}
+let batchMarketplaceAccounts = null;
+async function batchFetch(path) {
+  try { return await sc(path); }
+  catch (e) {
+    if (!/marketplace_account_id.*required/i.test(JSON.stringify(e.data || e.message))) throw e;
+    if (!batchMarketplaceAccounts) {
+      const data = await sc('/api/marketplace_accounts');
+      batchMarketplaceAccounts = (data.marketplace_accounts || []).map(a => a.id).filter(Boolean);
+    }
+    if (!batchMarketplaceAccounts.length) throw new Error('No connected marketplace accounts were returned for Batch lookup.');
+    const field = path.includes('/product_listings') ? 'product_listings' : 'manifests';
+    const rows = [];
+    for (const id of batchMarketplaceAccounts) {
+      const data = await sc(`${path}${path.includes('?') ? '&' : '?'}marketplace_account_id=${encodeURIComponent(id)}`);
+      let entries = data[field] || data[field === 'manifests' ? 'manifest' : 'product_listing'] || [];
+      if (!Array.isArray(entries)) entries = [entries];
+      rows.push(...entries);
+    }
+    return { [field]: [...new Map(rows.map(x => [String(x.id || JSON.stringify(x)), x])).values()] };
+  }
+}
+
 function tagsOf(row){
   const candidates=[row,row?.product,row?.master_product,row?.product_listing,row?.catalogue_product].filter(Boolean);
   const found=[];
@@ -93,11 +115,11 @@ async function buildIndexes(){
 
     progress.phase='batches';const batches=activeBatches,batchSeen=new Set();
     for(let page=1;page<=500;page++){
-      const data=await sc(`/api/manifests?page=${page}&page_size=100`);let manifests=data.manifests||[];if(!Array.isArray(manifests))manifests=manifests?[manifests]:[];
+      const data=await batchFetch(`/api/manifests?page=${page}&page_size=100`);let manifests=data.manifests||[];if(!Array.isArray(manifests))manifests=manifests?[manifests]:[];
       for(const manifest of manifests){
         if(!manifest?.id)continue;
         for(let listingPage=1;listingPage<=100;listingPage++){
-          const listingData=await sc(`/api/manifests/${encodeURIComponent(manifest.id)}/product_listings?page=${listingPage}&page_size=100`);let listings=listingData.product_listings||[];if(!Array.isArray(listings))listings=listings?[listings]:[];
+          const listingData=await batchFetch(`/api/manifests/${encodeURIComponent(manifest.id)}/product_listings?page=${listingPage}&page_size=100`);let listings=listingData.product_listings||[];if(!Array.isArray(listings))listings=listings?[listings]:[];
           for(const row of listings){const tags=tagsOf(row);const key=`${manifest.id}|${row.id||row.sku}`;if(batchSeen.has(key))continue;batchSeen.add(key);batches.push({id:row.id||'',product_id:row.product_id||'',manifest_id:manifest.id,manifest_name:manifest.name||'',sku:String(row.sku||row.custom_catalogue_sku||row.catalogue_sku||''),upc:String(row.upc||row.barcode||''),title:String(titlesOf(row)[0]||''),search_titles:titlesOf(row),image:imageOf(row),quantity_available:Number(row.quantity??row.quantity_available??0),tags,locations:[{location:String(row.location||row.item_location||''),quantity:Number(row.quantity??row.quantity_available??0)}],status:String(manifest.status||''),source:'batch',url:`https://app.sellerchamp.com/manifests/${encodeURIComponent(manifest.id)}?product_listing%5Bquery%5D=${encodeURIComponent(row.sku||'')}`});progress.batches=batches.length}
           if(listings.length<100)break;
         }
@@ -107,11 +129,11 @@ async function buildIndexes(){
       }
       if(manifests.length<100)break;
     }
-    write(BATCH_INDEX,{updated_at:new Date().toISOString(),includes_untagged:true,includes_listing_titles:true,items:batches},'tags');progress.phase='complete';
+    write(BATCH_INDEX,{updated_at:new Date().toISOString(),includes_untagged:true,includes_listing_titles:true,includes_marketplace_accounts:true,items:batches},'tags');progress.phase='complete';
   }catch(error){buildError=error.message||'Refresh failed.';progress.phase='error';throw error}finally{building=false}
 }
 
-app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.12.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
+app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.13.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
 app.get('/api/index-status',(req,res)=>res.json({building,error:buildError,progress}));
 app.get('/api/tags',(req,res)=>{
   const all=currentItems(),byTag=new Map();
@@ -264,7 +286,7 @@ async function scanFloor(){
      const key=String(row.manifest_id);
      if(!manifests.has(key)){
       const listings=[];
-      for(let page=1;page<=100;page++){const data=await sc(`/api/manifests/${encodeURIComponent(key)}/product_listings?page=${page}&page_size=100`);if(!Array.isArray(data.product_listings))throw Error('Batch inventory could not be verified.');listings.push(...data.product_listings);if(data.product_listings.length<100)break}
+      for(let page=1;page<=100;page++){const data=await batchFetch(`/api/manifests/${encodeURIComponent(key)}/product_listings?page=${page}&page_size=100`);if(!Array.isArray(data.product_listings))throw Error('Batch inventory could not be verified.');listings.push(...data.product_listings);if(data.product_listings.length<100)break}
       manifests.set(key,listings);
      }
      const live=manifests.get(key).find(x=>String(x.id)===String(row.id));
@@ -303,7 +325,7 @@ app.get('/api/floor/product/:id/live',async(req,res)=>{try{
 app.get('/api/floor/batch/:manifest/:id/live',async(req,res)=>{try{
  let found=null;
  for(let page=1;page<=100;page++){
-  const data=await sc(`/api/manifests/${encodeURIComponent(req.params.manifest)}/product_listings?page=${page}&page_size=100`);
+  const data=await batchFetch(`/api/manifests/${encodeURIComponent(req.params.manifest)}/product_listings?page=${page}&page_size=100`);
   if(!Array.isArray(data.product_listings))throw Error('SellerChamp did not return batch listings.');
   found=data.product_listings.find(x=>String(x.id)===String(req.params.id));if(found||data.product_listings.length<100)break;
  }
@@ -320,5 +342,5 @@ app.get('/api/floor/batch/:manifest/:id/live',async(req,res)=>{try{
 }catch(e){res.status(e.status||500).json({error:'Could not verify this batch location.',details:e.message})}});
 
 app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
-app.listen(PORT,()=>{console.log(`SellerChamp Tag Location Sorter running on ${PORT}`);const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);let completeBatchIndex=false;try{const saved=JSON.parse(fs.readFileSync(BATCH_INDEX,'utf8'));completeBatchIndex=saved.includes_untagged===true&&saved.includes_listing_titles===true}catch{}if(!p.items.length||!b.items.length||!completeBatchIndex)buildIndexes().catch(error=>console.error('Initial tag index refresh failed:',error.message))});
+app.listen(PORT,()=>{console.log(`SellerChamp Tag Location Sorter running on ${PORT}`);const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);let completeBatchIndex=false;try{const saved=JSON.parse(fs.readFileSync(BATCH_INDEX,'utf8'));completeBatchIndex=saved.includes_untagged===true&&saved.includes_listing_titles===true&&saved.includes_marketplace_accounts===true}catch{}if(!p.items.length||!b.items.length||!completeBatchIndex)buildIndexes().catch(error=>console.error('Initial tag index refresh failed:',error.message))});
 setInterval(()=>{if(!building)buildIndexes().catch(error=>console.error('Scheduled tag index refresh failed:',error.message))},24*60*60*1000).unref();
