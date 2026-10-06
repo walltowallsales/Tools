@@ -440,6 +440,28 @@ function attachBatchLink(product,row){
  product.sellerchamp_batch_url=`https://app.sellerchamp.com/manifests/${encodeURIComponent(row.manifest_id)}?product_listing%5Bquery%5D=${encodeURIComponent(product.sku||row.sku||'')}`;
  return product;
 }
+let batchMarketplaceAccounts = null;
+async function batchFetch(path) {
+  try { return await scFetch(path); }
+  catch (e) {
+    if (!/marketplace_account_id.*required/i.test(JSON.stringify(e.data || e.message))) throw e;
+    if (!batchMarketplaceAccounts) {
+      const data = await scFetch('/api/marketplace_accounts');
+      batchMarketplaceAccounts = (data.marketplace_accounts || []).map(a => a.id).filter(Boolean);
+    }
+    if (!batchMarketplaceAccounts.length) throw new Error('No connected marketplace accounts were returned for Batch lookup.');
+    const field = path.includes('/product_listings') ? 'product_listings' : 'manifests';
+    const rows = [];
+    for (const id of batchMarketplaceAccounts) {
+      const data = await scFetch(`${path}${path.includes('?') ? '&' : '?'}marketplace_account_id=${encodeURIComponent(id)}`);
+      let entries = data[field] || data[field === 'manifests' ? 'manifest' : 'product_listing'] || [];
+      if (!Array.isArray(entries)) entries = [entries];
+      rows.push(...entries);
+    }
+    return { [field]: [...new Map(rows.map(x => [String(x.id || JSON.stringify(x)), x])).values()] };
+  }
+}
+
 async function findManifestForCode(code) {
   const needle = String(code || '').trim().toLowerCase();
   if (!needle) return null;
@@ -447,7 +469,7 @@ async function findManifestForCode(code) {
   const indexed=indexedBatch(code);
   if(indexed){
    for(let page=1;page<=100;page++){
-    try{const data=await scFetch(`/api/manifests/${encodeURIComponent(indexed.manifest_id)}/product_listings?page=${page}&page_size=100`);let rows=data.product_listings||data.product_listing||[];if(!Array.isArray(rows))rows=[rows];const match=rows.find(x=>[x.sku,x.alt_sku,x.upc,x.barcode,x.custom_catalogue_sku,x.catalogue_sku].some(v=>v&&String(v).trim().toLowerCase()===needle));if(match)return {manifest_id:indexed.manifest_id,manifest_name:indexed.manifest_name||'',listing:match,url:`https://app.sellerchamp.com/manifests/${encodeURIComponent(indexed.manifest_id)}?product_listing%5Bquery%5D=${encodeURIComponent(code)}`};if(rows.length<100)break}catch{break}
+    try{const data=await batchFetch(`/api/manifests/${encodeURIComponent(indexed.manifest_id)}/product_listings?page=${page}&page_size=100`);let rows=data.product_listings||data.product_listing||[];if(!Array.isArray(rows))rows=[rows];const match=rows.find(x=>[x.sku,x.alt_sku,x.upc,x.barcode,x.custom_catalogue_sku,x.catalogue_sku].some(v=>v&&String(v).trim().toLowerCase()===needle));if(match)return {manifest_id:indexed.manifest_id,manifest_name:indexed.manifest_name||'',listing:match,url:`https://app.sellerchamp.com/manifests/${encodeURIComponent(indexed.manifest_id)}?product_listing%5Bquery%5D=${encodeURIComponent(code)}`};if(rows.length<100)break}catch{break}
    }
   }
   // Marketplace Batches are SellerChamp Manifests. Search manifests newest-first,
@@ -456,7 +478,7 @@ async function findManifestForCode(code) {
   for (let page = 1; page <= 10; page++) {
     let data;
     try {
-      data = await scFetch(`/api/manifests?page=${page}&page_size=${pageSize}`);
+      data = await batchFetch(`/api/manifests?page=${page}&page_size=${pageSize}`);
     } catch (e) {
       if ([400,404].includes(e.status)) return null;
       throw e;
@@ -470,7 +492,7 @@ async function findManifestForCode(code) {
       for (let lp = 1; lp <= 20; lp++) {
         let listingData;
         try {
-          listingData = await scFetch(`/api/manifests/${encodeURIComponent(manifest.id)}/product_listings?page=${lp}&page_size=100`);
+          listingData = await batchFetch(`/api/manifests/${encodeURIComponent(manifest.id)}/product_listings?page=${lp}&page_size=100`);
         } catch (e) {
           if ([400,404].includes(e.status)) break;
           throw e;
@@ -580,7 +602,7 @@ app.get('/api/status', async (req, res) => {
     }
     res.json({
       ok: true,
-      version: '2.42.0',
+      version: '2.43.0',
       pinRequired: !!APP_PIN,
       accounts: [],
       search_index: {
@@ -712,6 +734,8 @@ app.get('/api/lookup', async (req, res) => {
     let manifestMatch = null;
     try { manifestMatch = await findManifestForCode(code); } catch (e) {
       console.warn('Manifest lookup failed:', e.message);
+      if (product) product.batch_lookup_error = 'Batch lookup failed. Please retry or check the Batch diagnostic.';
+      else throw e;
     }
 
     if (manifestMatch && Number(manifestMatch.listing?.quantity_listed || 0) > 0 && manifestMatch.listing?.product_id) {

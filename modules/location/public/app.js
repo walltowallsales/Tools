@@ -126,7 +126,7 @@ function showProduct(){
   batchBtn.title=p.batch_found?(p.manifest_name?`Open batch: ${p.manifest_name}`:'Open originating SellerChamp batch'):'No originating batch was found';
   let bi=$('batchInfo');
   if(!bi){bi=document.createElement('div');bi.id='batchInfo';bi.style.cssText='margin-top:6px;font-size:.9rem;font-weight:700;';batchBtn.parentElement.appendChild(bi);}
-  bi.textContent=p.batch_found?`Batch: ${p.manifest_name||p.manifest_id}`:p.batch_lookup_skipped?'Batch: not checked':'Batch: not found';
+  bi.textContent=p.batch_found?`Batch: ${p.manifest_name||p.manifest_id}`:p.batch_lookup_error?p.batch_lookup_error:p.batch_lookup_skipped?'Batch: not checked':'Batch: not found';
   let wi=$('workflowInfo');
   if(!wi){wi=document.createElement('div');wi.id='workflowInfo';wi.style.cssText='margin-top:4px;font-size:.82rem;font-weight:800;';bi.parentElement.appendChild(wi);}
   wi.textContent=p.workflow==='batch'?'WORKFLOW: UNSUBMITTED BATCH':'WORKFLOW: PRODUCTS';
