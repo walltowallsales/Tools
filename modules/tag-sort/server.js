@@ -60,7 +60,22 @@ function tagsOf(row){
   }
   return found;
 }
-function imageOf(p){return p?.primary_image||p?.primary_image_url||p?.image_url||p?.image||p?.product_images?.[0]?.large_image_url||p?.product_images?.[0]?.image_url||''}
+function imageOf(p){
+ const url=v=>{if(typeof v==='string')return /^https?:\/\//i.test(v)?v:'';if(v&&typeof v==='object')return url(v.large_image_url)||url(v.image_url)||url(v.url)||url(v.src)||url(v.original);return ''};
+ for(const row of [p,p?.product,p?.master_product,p?.product_listing,p?.catalogue_product].filter(Boolean)){
+  for(const key of ['primary_image','primary_image_url','image_url','image','thumbnail_url','picture_url']){const found=url(row[key]);if(found)return found}
+  for(const key of ['product_images','images','pictures','image_urls','product_listing_images']){for(const v of Array.isArray(row[key])?row[key]:[]){const found=url(v);if(found)return found}}
+ }
+ return '';
+}
+async function batchPhoto(live,row,products){
+ const direct=imageOf(live)||imageOf(row);if(direct)return direct;
+ const id=live.product_id||row.product_id;
+ const cached=products.find(p=>id?String(p.id)===String(id):p.sku&&String(p.sku).trim().toLowerCase()===String(row.sku||'').trim().toLowerCase());
+ if(imageOf(cached))return imageOf(cached);
+ if(id){try{const detail=await sc(`/api/products/${encodeURIComponent(id)}.json`);return imageOf(detail.product||detail)}catch{}}
+ return '';
+}
 function titlesOf(p){return [...new Set([p?.title,p?.product_title,p?.marketplace_title,p?.listing_title,p?.ebay_title,p?.product?.title,p?.product_listing?.title,p?.master_product?.title,...(Array.isArray(p?.variants)?p.variants.flatMap(v=>[v.title,v.product_title,v.listing_title]):[]),...(Array.isArray(p?.product_listings)?p.product_listings.map(v=>v.title||v.product_title):[])].filter(x=>typeof x==='string'&&x.trim()))]}
 function locationsOf(p){const rows=(Array.isArray(p?.inventory_locations)?p.inventory_locations:[]).map(x=>({location:String(x.location||''),quantity:Number(x.quantity_available||0)}));if(!rows.length&&(p?.item_location||p?.bin_location||p?.warehouse_location))rows.push({location:String(p.item_location||p.bin_location||p.warehouse_location),quantity:Number(p.quantity_available||0)});return rows}
 function load(file){try{const data=JSON.parse(fs.readFileSync(file,'utf8'));return {items:Array.isArray(data.items)?data.items:[],updated_at:data.updated_at||null}}catch{return {items:[],updated_at:null}}}
@@ -133,7 +148,7 @@ async function buildIndexes(){
   }catch(error){buildError=error.message||'Refresh failed.';progress.phase='error';throw error}finally{building=false}
 }
 
-app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.13.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
+app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.14.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
 app.get('/api/index-status',(req,res)=>res.json({building,error:buildError,progress}));
 app.get('/api/tags',(req,res)=>{
   const all=currentItems(),byTag=new Map();
@@ -298,7 +313,7 @@ async function scanFloor(){
      const negativeStatus=['active','inactive','submitted','ended','deleted','removed'].includes(status);
      if(negativeStatus||Number(live.quantity_listed)>0||live.submitted===true||live.submitted_at||(!explicitDraft&&!knownNotListed))continue;
      const location=String(live.location??live.item_location??'');
-     const fresh={...row,locations:[{location,quantity:Number(live.quantity??live.quantity_available??0)}]};
+     const fresh={...row,image:await batchPhoto(live,row,products),locations:[{location,quantity:Number(live.quantity??live.quantity_available??0)}]};
      // A Product placeholder can exist before submission with zero stock.
      // Explicit live Batch status decides whether its inventory is usable.
      const duplicate=floorScan.results.some(p=>p.source==='product'&&(
@@ -332,7 +347,7 @@ app.get('/api/floor/batch/:manifest/:id/live',async(req,res)=>{try{
  if(!found)return res.status(404).json({error:'This batch item could not be found. It has not been removed from your list.'});
  if(found.location===undefined&&found.item_location===undefined)throw Error('SellerChamp did not return this batch item’s location.');
  const location=String(found.location??found.item_location??'');
- const product={id:found.id,manifest_id:req.params.manifest,source:'batch',sku:found.sku||'',title:titlesOf(found)[0]||'',image:imageOf(found),locations:[{location,quantity:Number(found.quantity??found.quantity_available??0)}]};
+ const product={id:found.id,manifest_id:req.params.manifest,source:'batch',sku:found.sku||'',title:titlesOf(found)[0]||'',image:await batchPhoto(found,{product_id:found.product_id,sku:found.sku},currentItems().filter(x=>x.source==='product')),locations:[{location,quantity:Number(found.quantity??found.quantity_available??0)}]};
  const index=load(BATCH_INDEX);index.items=index.items.map(x=>String(x.id)===String(found.id)&&String(x.manifest_id)===String(req.params.manifest)?{...x,...product}:x);
  let metadata={};try{metadata=JSON.parse(fs.readFileSync(BATCH_INDEX,'utf8'))}catch{}
  write(BATCH_INDEX,{...metadata,items:index.items,updated_at:new Date().toISOString()},'floor');
