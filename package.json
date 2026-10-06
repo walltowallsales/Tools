@@ -1,6 +1,6 @@
 {
   "name": "sellerchamp-tools-suite",
-  "version": "1.43.0",
+  "version": "1.44.0",
   "private": true,
   "engines": {
     "node": ">=20"
@@ -15,10 +15,13 @@
     "test:tag-sort": "node scripts/test-tag-sort.js",
     "test:consignment": "node scripts/test-consignment.js",
     "test:pick-recovery": "node scripts/test-pick-recovery.js",
-    "test:consignment-payout": "node scripts/test-consignment-payout.js"
+    "test:consignment-payout": "node scripts/test-consignment-payout.js",
+    "test:freight-audit": "node scripts/test-freight-audit.js",
+    "test:freight-audit-job": "node scripts/test-freight-audit-job.js"
   },
   "dependencies": {
     "express": "^4.21.2",
+    "fast-xml-parser": "^5.11.2",
     "http-proxy": "^1.18.1",
     "multer": "^1.4.5-lts.1",
     "pdfkit": "^0.16.0"

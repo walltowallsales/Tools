@@ -1,17 +1,21 @@
-# SellerChamp Tools Suite v1.32
+# SellerChamp Tools Suite v1.44
 
-One Render service and one persistent disk containing seven independently routed modules:
+One Render service and one persistent disk containing nine independently routed modules:
 
-1. **Item - Move or Update Qty** (`/move/`) — Location Mover v2.40
+1. **Item - Move or Update Qty** (`/move/`) — Location Mover v2.43
 2. **Item - Inventory Verify** (`/inventory/`) — Inventory Checker v1.5
 3. **Item - Local Auction** (`/auction/`) — Auction Inventory v1.13
-4. **Item - Sort Tags by Location** (`/tags/`) — Tag Location Sorter v1.11
-5. **Shipping - Pick List** (`/shipping/`) — Pick Batch v33
+4. **Item - Sort Tags by Location** (`/tags/`) — Tag Location Sorter v1.14
+5. **Shipping - Pick List** (`/shipping/`) — Pick Batch v36
 6. **Orders - Returns** (`/returns/`) — Returns v2.48
 
 7. **Orders - Consignment** — `/consignment/`
+8. **Item - Relocate FLOOR Items** — `/floor/` · v1.7
+9. **Item - Freight Shipping Audit** — `/freight-audit/` · v1.0
 
-The original module source is kept in separate folders under `modules/`. The gateway gives each module its own path and process, so module-specific changes remain isolated. Shared environment settings are normalized by the gateway. One suite-level PIN login covers the dashboard and all seven modules for 30 days.
+See **FREIGHT-AUDIT-SETUP.md** for eBay credentials and audit instructions.
+
+The original module source is kept in separate folders under `modules/`. The gateway gives each module its own path and process, so module-specific changes remain isolated. Shared environment settings are normalized by the gateway. One suite-level PIN login covers the dashboard and all nine modules for 30 days.
 
 Version 1.20 indexes all marketplace listing titles, including active listings without tags and not-submitted batches. The Location Mover searches these titles alongside Product titles; the shared index automatically rebuilds after deployment. Version 1.18 added the persistent freight workflow to Shipping - Pick List.
 
@@ -75,7 +79,7 @@ modules/consignment
 
 The gateway should need changes only when adding/removing a module or changing a module's displayed name/path.
 
-## Pick Batch v33
+## Pick Batch v36
 
 Use **Skip** (centered below Back and Next) for rack items. The shelf pass advances to the next normal item. Outstanding forklift stops remain in the active batch and are listed together under **Forklift Pass**. Open each stop there and complete it in the pick guide; the batch cannot archive until all forklift stops are picked. Freight remains a separate shipping follow-up workflow.
 
