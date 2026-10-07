@@ -1,0 +1,11 @@
+'use strict';
+const assert=require('assert'),fs=require('fs'),path=require('path'),vm=require('vm');
+const source=fs.readFileSync(path.join(__dirname,'../modules/location/public/app.js'),'utf8');
+const assignment=source.match(/\$\('findBtn'\)\.onclick[^\n]+/)[0];
+const button={};let args;
+vm.runInNewContext(assignment,{$:()=>button,findItem:(...a)=>{args=a;}});
+button.onclick({type:'click',pointerType:'touch'});
+assert.deepEqual(args,[],'iPhone tap must not be passed as forceFullLookup');
+button.onclick({type:'click',pointerType:'mouse'});
+assert.deepEqual(args,[],'Desktop click must follow the same partial-search flow');
+console.log('Location button passed: touch/mouse events cannot force exact-only lookup.');
