@@ -390,10 +390,6 @@ app.get('/api/floor/batch/:manifest/:id/live',async(req,res)=>{try{
  res.json({product});
 }catch(e){res.status(e.status||500).json({error:'Could not verify this batch location.',details:e.message})}});
 
-app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
-app.listen(PORT,()=>{console.log(`SellerChamp Tag Location Sorter running on ${PORT}`);const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);let completeBatchIndex=false;try{const saved=JSON.parse(fs.readFileSync(BATCH_INDEX,'utf8'));completeBatchIndex=saved.includes_untagged===true&&saved.includes_listing_titles===true&&saved.includes_marketplace_accounts===true}catch{}if(!p.items.length||!b.items.length||!completeBatchIndex)buildIndexes().catch(error=>console.error('Initial tag index refresh failed:',error.message))});
-setInterval(()=>{if(!building)buildIndexes().catch(error=>console.error('Scheduled tag index refresh failed:',error.message))},24*60*60*1000).unref();
-
 // Internal read-only catalog access shares the owner's existing rate-limit queue.
 app.get('/internal/freight-read',async(req,res)=>{
  if(!process.env.SUITE_INTERNAL_KEY||req.headers['x-suite-internal-key']!==process.env.SUITE_INTERNAL_KEY)return res.status(403).json({error:'Forbidden'});
@@ -401,3 +397,8 @@ app.get('/internal/freight-read',async(req,res)=>{
  if(endpoint!=='/api/marketplace_accounts'&&!/^\/api\/products\?page=\d{1,4}&page_size=100$/.test(endpoint)&&!/^\/api\/products\/[a-zA-Z0-9_-]+\.json$/.test(endpoint))return res.status(400).json({error:'Invalid catalog read'});
  try{res.json(await sc(endpoint))}catch(e){res.status(e.status||502).json({error:e.message})}
 });
+
+app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
+app.listen(PORT,()=>{console.log(`SellerChamp Tag Location Sorter running on ${PORT}`);const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);let completeBatchIndex=false;try{const saved=JSON.parse(fs.readFileSync(BATCH_INDEX,'utf8'));completeBatchIndex=saved.includes_untagged===true&&saved.includes_listing_titles===true&&saved.includes_marketplace_accounts===true}catch{}if(!p.items.length||!b.items.length||!completeBatchIndex)buildIndexes().catch(error=>console.error('Initial tag index refresh failed:',error.message))});
+setInterval(()=>{if(!building)buildIndexes().catch(error=>console.error('Scheduled tag index refresh failed:',error.message))},24*60*60*1000).unref();
+
