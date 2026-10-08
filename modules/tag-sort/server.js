@@ -148,7 +148,7 @@ async function buildIndexes(){
   }catch(error){buildError=error.message||'Refresh failed.';progress.phase='error';throw error}finally{building=false}
 }
 
-app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.14.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
+app.get('/api/status',async(req,res)=>{try{if(!building)await sc('/api/marketplace_accounts');const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({ok:true,version:'1.15.0',building,error:buildError,progress,products:p.items.length,batches:b.items.length,updated_at:[p.updated_at,b.updated_at].filter(Boolean).sort().at(-1)||null})}catch(e){res.status(e.status||500).json({error:'Could not connect to SellerChamp.',details:e.data||e.message})}});
 app.get('/api/index-status',(req,res)=>res.json({building,error:buildError,progress}));
 app.get('/api/tags',(req,res)=>{
   const all=currentItems(),byTag=new Map();
@@ -241,6 +241,21 @@ async function shelfState(id){
  return {product,locations:data.inventory_locations};
 }
 function zeroConfirmed(state){return state.product.quantity_available!==null&&state.product.quantity_available!==undefined&&Number(state.product.quantity_available)===0&&state.locations.every(x=>x.quantity_available!==null&&x.quantity_available!==undefined&&Number(x.quantity_available)===0)}
+app.post('/api/product/:id/transfer-tag',async(req,res)=>{
+ const id=String(req.params.id),current=String(req.body?.current_tag||'').trim(),target=String(req.body?.new_tag||'').trim();
+ if(!current||!target||target.length>200||current.toLowerCase()===target.toLowerCase())return res.status(400).json({error:'Choose a different tag to add (up to 200 characters).'});
+ if(shelfActions.has(id))return res.status(409).json({error:'This item is already being updated.'});
+ shelfActions.add(id);
+ try{
+  await require('./tag-transfer').transferTags({current,target,tagsOf,sleep,
+   read:async()=>{const d=await sc(`/api/products/${encodeURIComponent(id)}.json`);const p=d.product||d;if(!p||!p.id)throw Error('SellerChamp did not return this product.');return p},
+   write:tags=>sc(`/api/products/${encodeURIComponent(id)}`,{method:'PUT',body:JSON.stringify({product:{tags_array:tags}})})});
+  const product=await liveProduct(id);
+  if(!product.tags.some(x=>x.toLowerCase()===target.toLowerCase())||product.tags.some(x=>x.toLowerCase()===current.toLowerCase()))return res.status(409).json({error:'Both tag changes could not be verified together. The item stays in the list.'});
+  recordTagRemoval(id,current);saveLiveProduct(product);
+  res.json({ok:true,verified:true,product,message:`Verified: added “${target}” and removed “${current}”.`});
+ }catch(e){res.status(e.status||409).json({error:e.message||'Tag changes could not be verified.'})}finally{shelfActions.delete(id)}
+});
 app.post('/api/product/:id/remove-tag-zero',async(req,res)=>{
  const id=String(req.params.id),tag=String(req.body?.tag||'').trim();
  if(req.body?.confirmed!==true||!tag)return res.status(400).json({error:'Confirm setting all inventory quantities to zero and removing the selected tag.'});

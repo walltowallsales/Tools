@@ -5,3 +5,5 @@
 .tag-action-pair{display:flex;align-items:center;gap:12px;margin:9px 0}.tag-action-pair .remove-tag-action{flex:1;background:#9b5d20}.tag-action-pair .remove-tag-zero-action{flex:0 0 88px;width:88px;min-height:40px;padding:7px 5px;font-size:11px;line-height:1.25;background:#a53223;border:2px solid #7d241b}.tag-action-pair button:disabled{opacity:.55;cursor:wait}
 
 .tag-action-pair .remove-tag-action{margin-top:0}
+
+.tag-action-pair .transfer-tag-action{flex:1;background:#257348;font-size:13px;padding:10px 6px;margin:0;min-width:0}.tag-action-pair{gap:8px}.tag-action-pair .remove-tag-action{min-width:0;font-size:13px;padding:10px 6px}dialog{border:1px solid #b8c5d7;border-radius:16px;padding:22px;width:440px;max-width:calc(100% - 32px);color:#12233b}dialog::backdrop{background:#0007}dialog label{display:block;margin:14px 0}dialog input,dialog select{display:block;width:100%;box-sizing:border-box;padding:12px;font:inherit;margin-top:6px}.transfer-buttons{display:flex;gap:10px}dialog button{flex:1}
