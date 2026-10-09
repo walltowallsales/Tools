@@ -8,7 +8,7 @@
 </head>
 <body>
 <a class="suite-back" href="/">← SellerChamp Tools</a>
-<div class="versionBadge">Version 36</div>
+<div class="versionBadge">Version 37</div>
 <header><div><h1>Pick Batches</h1><p>Frozen SellerChamp picking sessions</p></div><button id="homeBtn" class="ghost hidden">Home</button></header>
 <main>
 <section id="pinView" class="card hidden"><h2>Enter PIN</h2><input id="pinInput" inputmode="numeric" type="password" placeholder="PIN"><button id="pinBtn">Unlock</button><p id="pinErr" class="error"></p></section>
@@ -49,7 +49,7 @@
 </section>
 <section id="batchView" class="hidden">
   <div id="batchHead" class="card"></div>
-  <div class="actions"><button id="startBtn" class="primary">Open Dynamic Pick Guide</button><button id="printBtn">Print Pick List</button><button id="deleteBtn" class="danger ghost">Delete Batch</button></div>
+  <div class="actions"><button id="startBtn" class="primary">Open Dynamic Pick Guide</button><button id="printBtn">Print Pick List</button><button id="archiveBtn">Archive Batch</button><button id="deleteBtn" class="danger ghost">Delete Batch</button></div>
   <section id="forkliftQueue" class="forkliftQueue hidden"><h2>🏗️ Forklift Pass <span id="forkliftCount"></span></h2><p>These items remain unpicked in this batch. Open one after the shelf pass and mark it picked in the guide.</p><div id="forkliftList"></div></section>
   <div id="lineTableWrap" class="card tableWrap"></div>
 </section>

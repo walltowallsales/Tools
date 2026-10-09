@@ -18,6 +18,6 @@ r=await req('/api/batches/batch',{method:'PATCH',body:JSON.stringify({status:'ar
 let saved=await req('/api/batches/batch');assert.equal(saved.lines.filter(l=>l.forkliftDeferredAt).length,2);
 r=await req('/api/batches/batch/lines/line-1',{method:'PATCH',body:JSON.stringify({picked:true})});assert.equal(r.batch.forkliftStops,1);
 r=await req('/api/batches/batch/lines/line-2',{method:'PATCH',body:JSON.stringify({picked:true})});assert.equal(r.batch.forkliftStops,0);assert.equal(r.batch.pickedStops,3);
-r=await req('/api/batches/batch',{method:'PATCH',body:JSON.stringify({status:'archived'})});assert.equal(r.status,200);
+r=await req('/api/batches/batch',{method:'PATCH',body:JSON.stringify({status:'archived'})});assert.equal(r.status,200);saved=await req('/api/batches/batch');assert.equal(saved.batch.status,'archived');assert.equal(saved.lines.length,3);assert(saved.lines.every(l=>l.picked));
 console.log('Pick forklift workflow OK: deferred lines persist, prevent archiving, and clear when picked.');
 }finally{child.kill('SIGTERM');fs.rmSync(dataDir,{recursive:true,force:true})}})().catch(e=>{console.error(e);process.exitCode=1});
