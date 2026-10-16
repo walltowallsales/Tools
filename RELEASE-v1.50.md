@@ -1,0 +1,3 @@
+# Suite v1.50 — Freight Shipping Audit v1.2
+
+Preserves a valid eBay listing ID from the SellerChamp catalog when the detail response supplies a blank ID. Retains previously saved IDs for the same Product ID and SKU. Missing IDs are counted separately and no longer labeled checked on eBay. Partial verification is shown explicitly. Credentials saved no longer implies credentials valid. Weight and live positive-stock filtering remain. Run a new audit after deploying. If SellerChamp supplies no listing IDs in either response and none were saved previously, those items still require an eBay listing ID.
