@@ -1,6 +1,6 @@
 {
   "name": "sellerchamp-tools-suite",
-  "version": "1.51.0",
+  "version": "1.52.0",
   "private": true,
   "engines": {
     "node": ">=20"
@@ -18,7 +18,8 @@
     "test:consignment-payout": "node scripts/test-consignment-payout.js",
     "test:freight-audit": "node scripts/test-freight-audit.js",
     "test:freight-audit-job": "node scripts/test-freight-audit-job.js",
-    "test:ebay-notifications": "node scripts/test-ebay-notifications.js"
+    "test:ebay-notifications": "node scripts/test-ebay-notifications.js",
+    "test:ebay-oauth": "node scripts/test-ebay-oauth.js"
   },
   "dependencies": {
     "express": "^4.21.2",
