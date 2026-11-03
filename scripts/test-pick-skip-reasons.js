@@ -1,0 +1,26 @@
+'use strict';
+const assert=require('assert/strict'),fs=require('fs'),os=require('os'),path=require('path'),net=require('net');
+const {spawn}=require('child_process');
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pick-reasons-'));
+const lines=Array.from({length:4},(_,i)=>({id:'l'+i,sku:'SKU-'+i,title:'Item '+i,location:'RACK-'+i,quantityToPick:1,quantityOnHand:4,picked:false,orders:[]}));
+lines[0].forkliftDeferredAt=new Date().toISOString(); // prior-release skip
+const batch={id:'b',name:'Test',createdAt:new Date().toISOString(),status:'in_progress',orderIds:['o'],lines};
+fs.writeFileSync(path.join(dir,'pick-batches.json'),JSON.stringify({batches:[batch,{...batch,id:'deleted',status:'deleted'}],freightItems:[]}));
+(async()=>{const port=await new Promise(r=>{const s=net.createServer();s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>r(p))})});let child;
+const req=async(url,body,method='POST')=>{const r=await fetch('http://127.0.0.1:'+port+url,{method:body===undefined?'GET':method,headers:{'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,...await r.json()}};
+const start=async()=>{child=spawn(process.execPath,['server.js'],{cwd:path.join(__dirname,'../modules/pick'),env:{...process.env,PORT:String(port),DATA_DIR:dir,APP_PIN:''},stdio:'ignore'});for(let i=0;i<60;i++){try{await req('/api/health');return}catch{await new Promise(r=>setTimeout(r,40))}}throw Error('Startup failed')};
+const stop=()=>new Promise(r=>{child.once('exit',r);child.kill()});
+try{await start();let q=await req('/api/skipped');assert.equal(q.smallCount,1);assert.equal(q.items.length,1,'deleted batches excluded');
+let r=await req('/api/batches/b/lines/l1/forklift',{reason:'small'});assert.equal(r.batch.skipSmallStops,2);
+r=await req('/api/batches/b/lines/l2/forklift',{reason:'freight'});assert.equal(r.batch.skipFreightStops,1);assert.equal(r.line.picked,false);
+r=await req('/api/batches/b/lines/l3/forklift',{reason:'bad'});assert.equal(r.status,400);
+r=await req('/api/batches/b',{status:'archived'},'PATCH');assert.equal(r.status,409);
+await stop();await start();q=await req('/api/skipped');assert.equal(q.smallCount,2);assert.equal(q.freightCount,1);
+r=await req('/api/batches/b/lines/l0/forklift',{reason:'freight'});assert.equal(r.batch.skipSmallStops,1);assert.equal(r.batch.skipFreightStops,2);
+r=await req('/api/batches/b/lines/l1',{picked:true},'PATCH');assert(!r.line.skipReason);assert(!r.line.forkliftDeferredAt);
+r=await req('/api/batches/b/lines/l2/freight',{stage:'not_packed'});assert.equal(r.status,201);assert(!r.line.skipReason);assert(!r.line.forkliftDeferredAt);
+q=await req('/api/skipped');assert.equal(q.smallCount,0);assert.equal(q.freightCount,1);let f=await req('/api/freight');assert.equal(f.outstandingCount,1);
+await req('/api/batches/b/lines/l0',{picked:true},'PATCH');await req('/api/batches/b/lines/l3',{picked:true},'PATCH');
+r=await req('/api/batches/b',{status:'archived'},'PATCH');assert.equal(r.status,200);q=await req('/api/skipped');assert.equal(q.items.length,0);
+console.log('Skip reasons OK: legacy compatibility, separate counts, restart persistence, recategorization, completion, freight transition and archive protection.');
+}finally{if(child&&child.exitCode===null)await stop();fs.rmSync(dir,{recursive:true,force:true})}})().catch(e=>{console.error(e);process.exitCode=1});

@@ -303,6 +303,8 @@ async function buildSnapshot(orders) {
   return lines;
 }
 
+function skipReason(line) { return line.skipReason==='freight'?'freight':'small'; }
+function pendingSkip(line) { return !!line.forkliftDeferredAt&&!lineResolved(line); }
 function summarize(batch) {
   return {
     id: batch.id, name: batch.name, createdAt: batch.createdAt, status: batch.status,
@@ -312,6 +314,8 @@ function summarize(batch) {
     totalUnits: batch.lines.reduce((s,l)=>s+n(l.quantityToPick),0),
     pickedStops: batch.lines.filter(lineResolved).length,
     forkliftStops: batch.lines.filter(l=>!!l.forkliftDeferredAt&&!lineResolved(l)).length,
+    skipSmallStops: batch.lines.filter(l=>pendingSkip(l)&&skipReason(l)==='small').length,
+    skipFreightStops: batch.lines.filter(l=>pendingSkip(l)&&skipReason(l)==='freight').length,
     freightStops: batch.lines.filter(l=>!!l.freightId).length,
     currentIndex: batch.currentIndex || 0, recoveryWindow:batch.recoveryWindow||null
   };
@@ -393,7 +397,7 @@ app.patch('/api/batches/:id', (req,res)=> {
   if(!b) return res.status(404).json({error:'Batch not found'});
   if (req.body?.name !== undefined) b.name=str(req.body.name).trim() || b.name;
   if (req.body?.status && ['not_started','in_progress','completed','archived'].includes(req.body.status)) {
-    if(['completed','archived'].includes(req.body.status)&&!b.lines.every(lineResolved))return res.status(409).json({error:'This batch still has unpicked items, including any saved for the forklift pass.'});
+    if(['completed','archived'].includes(req.body.status)&&!b.lines.every(lineResolved))return res.status(409).json({error:'This batch still has unpicked items, including skipped small and freight items.'});
     b.status=req.body.status; if(req.body.status==='archived') b.archivedAt=nowIso();
   }
   if (Number.isInteger(req.body?.currentIndex)) b.currentIndex=Math.max(0,Math.min(req.body.currentIndex, Math.max(0,b.lines.length-1)));
@@ -406,7 +410,7 @@ app.patch('/api/batches/:id/lines/:lineId', (req,res)=> {
   if (typeof req.body?.picked === 'boolean') {
     if(req.body.picked&&line.freightId)return res.status(409).json({error:'Return this freight item to the pick list before marking it picked.'});
     line.picked=req.body.picked; line.pickedAt=line.picked?nowIso():null;
-    if(line.picked){delete line.forkliftDeferredAt;delete line.forkliftNote}
+    if(line.picked){delete line.forkliftDeferredAt;delete line.forkliftNote;delete line.skipReason}
   }
   if (typeof req.body?.onHandVerified === 'boolean') line.onHandVerified=req.body.onHandVerified;
   if (b.lines.every(lineResolved)) b.status='completed'; else if (b.lines.some(lineResolved)) b.status='in_progress';
@@ -419,10 +423,21 @@ app.post('/api/batches/:id/lines/:lineId/forklift', (req,res)=>{
   const line=b.lines.find(x=>x.id===req.params.lineId);
   if(!line)return res.status(404).json({error:'Item not found in this batch.'});
   if(line.picked||line.freightId)return res.status(409).json({error:'This item was already picked or moved to freight.'});
+  const reason=req.body?.reason??'small';
+  if(!['small','freight'].includes(reason))return res.status(400).json({error:'Choose Small Item or Freight Item.'});
+  line.skipReason=reason;
   line.forkliftDeferredAt=line.forkliftDeferredAt||nowIso();
   line.forkliftNote=str(req.body?.note).trim();
   b.status='in_progress';writeDb(db);
   res.json({line,batch:summarize(b)});
+});
+
+app.get('/api/skipped', (req,res)=>{
+  const items=readDb().batches.filter(b=>!['deleted','archived'].includes(b.status)).flatMap(b=>
+    b.lines.filter(pendingSkip).map(l=>({batchId:b.id,batchName:b.name,lineId:l.id,sku:l.sku,title:l.title,
+      location:l.location,image:l.image,quantityToPick:l.quantityToPick,reason:skipReason(l),deferredAt:l.forkliftDeferredAt})))
+    .sort((a,b)=>naturalCompare(a.location,b.location)||naturalCompare(a.sku,b.sku));
+  res.json({items,smallCount:items.filter(l=>l.reason==='small').length,freightCount:items.filter(l=>l.reason==='freight').length});
 });
 
 function freightView(f) {
@@ -465,6 +480,7 @@ app.post('/api/batches/:id/lines/:lineId/freight', (req,res)=> {
     history:[{action:'marked_freight',stage,at:nowIso()}]
   };
   db.freightItems.unshift(freight);
+  delete line.forkliftDeferredAt;delete line.forkliftNote;delete line.skipReason;
   line.freightId=freight.id;line.freightStage=stage;line.freightAt=freight.createdAt;
   if(batch.lines.every(lineResolved))batch.status='completed';else batch.status='in_progress';
   writeDb(db);res.status(201).json({ok:true,freight:freightView(freight),line,batch:summarize(batch)});

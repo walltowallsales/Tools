@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>SellerChamp Pick Batches</title>
-<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/styles.css?v=38">
 <style>.suite-back{display:block;background:#10233f;color:#e6efff;text-decoration:none;font-weight:850;font-size:16px;padding:13px max(16px,env(safe-area-inset-left))}@media print{.suite-back{display:none!important}}</style>
 </head>
 <body>
 <a class="suite-back" href="/">← SellerChamp Tools</a>
-<div class="versionBadge">Version 37</div>
+<div class="versionBadge">Version 38</div>
 <header><div><h1>Pick Batches</h1><p>Frozen SellerChamp picking sessions</p></div><button id="homeBtn" class="ghost hidden">Home</button></header>
 <main>
 <section id="pinView" class="card hidden"><h2>Enter PIN</h2><input id="pinInput" inputmode="numeric" type="password" placeholder="PIN"><button id="pinBtn">Unlock</button><p id="pinErr" class="error"></p></section>
@@ -23,7 +23,11 @@
     <p id="lastBatchReminder" class="meta"></p>
     <p id="homeError" class="error"></p>
   </div>
-  <button id="freightQueueBtn" class="freightQueueBtn" type="button">🚚 Outstanding Freight <span id="freightBadge">0</span></button>
+  <div class="waitingStrip" aria-label="Outstanding picking work">
+    <button id="smallQueueBtn" class="waitingStatus smallStatus" type="button"><span>Skip - Small Item</span><strong id="smallBadge">0</strong></button>
+    <button id="skipFreightQueueBtn" class="waitingStatus skipFreightStatus" type="button"><span>Skip - Freight Item</span><strong id="skipFreightBadge">0</strong></button>
+    <button id="freightQueueBtn" class="waitingStatus floorStatus" type="button"><span>Freight/Waiting - Already On The Floor</span><strong id="freightBadge">0</strong></button>
+  </div>
   <h2>Active Pick Batches</h2><div id="batchList" class="batchList"></div>
   <details id="archiveSection" class="archiveSection">
     <summary>Archived Pick Batches <span id="archiveCount"></span></summary>
@@ -41,8 +45,12 @@
   <button id="recoverySearchBtn" type="button">Find Orders to Recover</button><p id="recoveryError" class="error" role="alert"></p></div>
   <div id="recoveryResults" class="card hidden"><p class="recoveryWarning">A printed shipping label does not mean the item has been picked. Check only orders that still need picking. Shipped orders may show inventory after the sale was deducted.</p><p id="recoverySummary"></p><div class="recoverySelect"><button id="recoverySelectAll" type="button">Select All</button><button id="recoverySelectNone" type="button">Clear All</button></div><div id="recoveryOrders"></div><p id="recoverySelected" aria-live="polite"></p><button id="recoveryCreateBtn" class="primary" type="button" disabled>Create Batch from Selected Orders</button></div>
 </section>
+<section id="skippedView" class="hidden">
+  <div class="freightHeading"><div><h2 id="skippedTitle"></h2><p>Still needs picking. Open an item to pick it or move it to Freight/Waiting once it is on the floor.</p></div><button id="skippedRefreshBtn" type="button">Refresh</button></div>
+  <div id="skippedList" class="freightList"></div>
+</section>
 <section id="freightView" class="hidden">
-  <div class="freightHeading"><div><h2>Outstanding Freight</h2><p>Freight stays here until it is shipped, cancelled, or returned to its original pick batch.</p></div><button id="freightRefreshBtn" type="button">Refresh</button></div>
+  <div class="freightHeading"><div><h2>Freight/Waiting - Already On The Floor</h2><p>Freight stays here until it is shipped, cancelled, or returned to its original pick batch.</p></div><button id="freightRefreshBtn" type="button">Refresh</button></div>
   <div id="freightSummary" class="freightSummary"></div>
   <div id="freightList" class="freightList"></div>
   <details class="archiveSection"><summary>Completed / Cancelled Freight <span id="freightHistoryCount"></span></summary><div id="freightHistory" class="freightList"></div></details>
@@ -50,7 +58,7 @@
 <section id="batchView" class="hidden">
   <div id="batchHead" class="card"></div>
   <div class="actions"><button id="startBtn" class="primary">Open Dynamic Pick Guide</button><button id="printBtn">Print Pick List</button><button id="archiveBtn">Archive Batch</button><button id="deleteBtn" class="danger ghost">Delete Batch</button></div>
-  <section id="forkliftQueue" class="forkliftQueue hidden"><h2>🏗️ Forklift Pass <span id="forkliftCount"></span></h2><p>These items remain unpicked in this batch. Open one after the shelf pass and mark it picked in the guide.</p><div id="forkliftList"></div></section>
+  <section id="forkliftQueue" class="forkliftQueue hidden"><h2>Skipped Items <span id="forkliftCount"></span></h2><p>These items remain unpicked in this batch. Open one after the main pick pass and mark it picked in the guide.</p><div id="forkliftList"></div></section>
   <div id="lineTableWrap" class="card tableWrap"></div>
 </section>
 <section id="pickerView" class="hidden">
@@ -67,10 +75,11 @@
   </div>
   <label id="multiConfirm" class="confirm bottomConfirm hidden"><input id="confirmQty" type="checkbox"> <span id="confirmLabel">I picked the full quantity</span></label>
   <div id="pickError" class="alert hidden"></div>
-  <div class="pickerNav"><button id="backBtn">← Back</button><button id="nextBtn" class="primary">Next →</button><button id="forkliftBtn" class="forkliftBtn" type="button">Skip</button></div>
-  <button id="freightBtn" class="freightBtn" type="button">🚚 Freight / Waiting</button>
+  <div class="pickerNav"><button id="backBtn">← Back</button><button id="nextBtn" class="primary">Next →</button><div class="skipButtons"><button id="forkliftBtn" class="forkliftBtn" type="button">Skip - Small Item</button><button id="skipFreightBtn" class="forkliftBtn skipFreight" type="button">Skip - Freight Item</button></div></div>
+  <p id="skipStatus" class="skipStatus" role="status"></p>
+  <button id="freightBtn" class="freightBtn" type="button">🚚 Freight/Waiting - Already On The Floor</button>
   <div id="freightPanel" class="freightPanel hidden">
-    <h3>Move this item to Outstanding Freight?</h3>
+    <h3>Freight/Waiting - Already On The Floor</h3>
     <p>It will leave the normal pick guide and will not appear in a later pick batch.</p>
     <label>Optional note<input id="freightNote" type="text" placeholder="Pickup details or special instructions"></label>
     <button id="freightPackedBtn" class="freightChoice packed" type="button">Picked — Already Packed</button>
@@ -84,5 +93,5 @@
   </div>
 </section>
 </main>
-<script src="/app.js"></script>
+<script src="/app.js?v=38"></script>
 </body></html>
