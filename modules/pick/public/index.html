@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>SellerChamp Pick Batches</title>
-<link rel="stylesheet" href="/styles.css?v=38">
+<link rel="stylesheet" href="/styles.css?v=39">
 <style>.suite-back{display:block;background:#10233f;color:#e6efff;text-decoration:none;font-weight:850;font-size:16px;padding:13px max(16px,env(safe-area-inset-left))}@media print{.suite-back{display:none!important}}</style>
 </head>
 <body>
 <a class="suite-back" href="/">← SellerChamp Tools</a>
-<div class="versionBadge">Version 38</div>
+<div class="versionBadge">Version 39</div>
 <header><div><h1>Pick Batches</h1><p>Frozen SellerChamp picking sessions</p></div><button id="homeBtn" class="ghost hidden">Home</button></header>
 <main>
 <section id="pinView" class="card hidden"><h2>Enter PIN</h2><input id="pinInput" inputmode="numeric" type="password" placeholder="PIN"><button id="pinBtn">Unlock</button><p id="pinErr" class="error"></p></section>
@@ -75,7 +75,7 @@
   </div>
   <label id="multiConfirm" class="confirm bottomConfirm hidden"><input id="confirmQty" type="checkbox"> <span id="confirmLabel">I picked the full quantity</span></label>
   <div id="pickError" class="alert hidden"></div>
-  <div class="pickerNav"><button id="backBtn">← Back</button><button id="nextBtn" class="primary">Next →</button><div class="skipButtons"><button id="forkliftBtn" class="forkliftBtn" type="button">Skip - Small Item</button><button id="skipFreightBtn" class="forkliftBtn skipFreight" type="button">Skip - Freight Item</button></div></div>
+  <div class="pickerNav"><button id="backBtn">← Back</button><button id="nextBtn" class="primary">Next →</button><button id="skipBtn" class="skipBtn" type="button" aria-haspopup="dialog" aria-controls="skipDialog">Skip</button></div>
   <p id="skipStatus" class="skipStatus" role="status"></p>
   <button id="freightBtn" class="freightBtn" type="button">🚚 Freight/Waiting - Already On The Floor</button>
   <div id="freightPanel" class="freightPanel hidden">
@@ -93,5 +93,15 @@
   </div>
 </section>
 </main>
-<script src="/app.js?v=38"></script>
+<dialog id="skipDialog" class="skipDialog" aria-labelledby="skipDialogTitle" aria-describedby="skipDialogDescription">
+  <h2 id="skipDialogTitle">Skip this item?</h2>
+  <p id="skipDialogDescription">Do you want to skip a small item or a freight item?</p>
+  <div class="skipDialogChoices">
+    <button id="skipSmallChoice" type="button">Small Item</button>
+    <button id="skipFreightChoice" type="button">Freight Item</button>
+  </div>
+  <p id="skipDialogError" class="error" role="alert"></p>
+  <button id="skipCancel" type="button" autofocus>Cancel</button>
+</dialog>
+<script src="/app.js?v=39"></script>
 </body></html>

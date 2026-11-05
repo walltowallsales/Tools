@@ -67,7 +67,7 @@ async function archiveInventoryAction(lineId,mode,pickedQty){
 $('#printBtn').onclick=()=>window.print(); $('#startBtn').onclick=()=>{const next=anyNormal();if(next>=0)idx=next;else if(currentBatch.forkliftStops){renderForkliftQueue();$('#forkliftQueue').scrollIntoView({behavior:'smooth'});return}else if(currentLines.every(l=>l.picked||l.freightId)){alert('All pick stops are complete.');return}show('pickerView');renderPick()};
 $('#deleteBtn').onclick=async()=>{if(!confirm('Delete this pick batch? Its orders will become eligible for a future batch again.'))return;try{await api('/api/batches/'+currentBatch.id,{method:'DELETE'});loadHome()}catch(e){alert(e.message)}};
 function formatSku(sku){const s=String(sku??'');if(s.length<5)return esc(s);const a=esc(s.slice(0,4)),b=esc(s.slice(4,10)),c=esc(s.slice(10));return `${a}<span class="skuFocus">${b}</span>${c}`}
-function renderPick(){if(!currentLines.length)return;const l=currentLines[idx];$('#progressText').textContent=`Pick stop ${idx+1} of ${currentLines.length} • ${currentLines.filter(x=>x.picked).length} complete`;$('#progressBar').style.width=((idx+1)/currentLines.length*100)+'%';$('#pickLocation').textContent=l.location;$('#pickQty').textContent=l.quantityToPick;$('#pickSku').innerHTML=formatSku(l.sku);$('#pickCondition').textContent=l.condition;$('#pickOnHand').textContent=l.quantityOnHand;$('#pickTitle').textContent=l.title;$('#orderBox').innerHTML=(l.orders||[]).map(o=>`<div class="orderBreakdownLine">QTY- ${esc(o.quantity)}&nbsp;&nbsp; Order#- ${esc(o.orderNumber)}${o.alreadyMarkedShipped?'<br><span class="recoveryShipped">Already marked shipped</span>':''}</div>`).join('');const img=$('#pickImage'),no=$('#noImage');if(l.image){img.src=l.image;img.classList.remove('hidden');no.classList.add('hidden')}else{img.classList.add('hidden');no.classList.remove('hidden')};const multi=l.quantityToPick>1;$('#multiConfirm').classList.toggle('hidden',!multi);$('#confirmQty').checked=!!l.picked;const verifyOnHand=Number(l.quantityOnHand)>=1&&Number(l.quantityOnHand)<=3;$('#onHandVerifyWrap').classList.toggle('hidden',!verifyOnHand);$('#confirmOnHand').checked=verifyOnHand?!!l.onHandVerified:true;$('#confirmLabel').textContent=`I picked all ${l.quantityToPick}`;$('#onHandLabel').textContent='VERIFIED';$('#correctionPanel').classList.add('hidden');$('#actualQty').value='';$('#correctionMsg').textContent='';$('#correctQtyBtn').textContent='Adjust Quantity';$('#pickError').classList.add('hidden');$('#pickError').textContent='';$('#backBtn').disabled=idx===0;$('#nextBtn').textContent=normalNext(idx)<0?'Finish Shelf Pass':'Next →';$('.skipButtons').classList.toggle('hidden',!!l.picked||!!l.freightId);$('#forkliftBtn').textContent='Skip - Small Item';$('#skipFreightBtn').textContent='Skip - Freight Item';$('#skipStatus').textContent=l.forkliftDeferredAt&&!l.picked&&!l.freightId?skipLabel(l)+' — still needs picking':'';$('#freightPanel').classList.add('hidden');const pickerSc=$('#pickerSellerChampBtn');if(l.sellerChampProductUrl){pickerSc.href=l.sellerChampProductUrl;pickerSc.classList.remove('hidden')}else{pickerSc.removeAttribute('href');pickerSc.classList.add('hidden')}const ebay=$('#ebayListingBtn'),sc=$('#sellerChampProductBtn');if(l.ebayListingUrl){ebay.href=l.ebayListingUrl;ebay.classList.remove('hidden')}else{ebay.removeAttribute('href');ebay.classList.add('hidden')}if(l.sellerChampProductUrl){sc.href=l.sellerChampProductUrl;sc.classList.remove('hidden')}else{sc.removeAttribute('href');sc.classList.add('hidden')}}
+function renderPick(){if(!currentLines.length)return;const l=currentLines[idx];$('#progressText').textContent=`Pick stop ${idx+1} of ${currentLines.length} • ${currentLines.filter(x=>x.picked).length} complete`;$('#progressBar').style.width=((idx+1)/currentLines.length*100)+'%';$('#pickLocation').textContent=l.location;$('#pickQty').textContent=l.quantityToPick;$('#pickSku').innerHTML=formatSku(l.sku);$('#pickCondition').textContent=l.condition;$('#pickOnHand').textContent=l.quantityOnHand;$('#pickTitle').textContent=l.title;$('#orderBox').innerHTML=(l.orders||[]).map(o=>`<div class="orderBreakdownLine">QTY- ${esc(o.quantity)}&nbsp;&nbsp; Order#- ${esc(o.orderNumber)}${o.alreadyMarkedShipped?'<br><span class="recoveryShipped">Already marked shipped</span>':''}</div>`).join('');const img=$('#pickImage'),no=$('#noImage');if(l.image){img.src=l.image;img.classList.remove('hidden');no.classList.add('hidden')}else{img.classList.add('hidden');no.classList.remove('hidden')};const multi=l.quantityToPick>1;$('#multiConfirm').classList.toggle('hidden',!multi);$('#confirmQty').checked=!!l.picked;const verifyOnHand=Number(l.quantityOnHand)>=1&&Number(l.quantityOnHand)<=3;$('#onHandVerifyWrap').classList.toggle('hidden',!verifyOnHand);$('#confirmOnHand').checked=verifyOnHand?!!l.onHandVerified:true;$('#confirmLabel').textContent=`I picked all ${l.quantityToPick}`;$('#onHandLabel').textContent='VERIFIED';$('#correctionPanel').classList.add('hidden');$('#actualQty').value='';$('#correctionMsg').textContent='';$('#correctQtyBtn').textContent='Adjust Quantity';$('#pickError').classList.add('hidden');$('#pickError').textContent='';$('#backBtn').disabled=idx===0;$('#nextBtn').textContent=normalNext(idx)<0?'Finish Shelf Pass':'Next →';$('#skipBtn').classList.toggle('hidden',!!l.picked||!!l.freightId);$('#skipStatus').textContent=l.forkliftDeferredAt&&!l.picked&&!l.freightId?skipLabel(l)+' — still needs picking':'';$('#freightPanel').classList.add('hidden');const pickerSc=$('#pickerSellerChampBtn');if(l.sellerChampProductUrl){pickerSc.href=l.sellerChampProductUrl;pickerSc.classList.remove('hidden')}else{pickerSc.removeAttribute('href');pickerSc.classList.add('hidden')}const ebay=$('#ebayListingBtn'),sc=$('#sellerChampProductBtn');if(l.ebayListingUrl){ebay.href=l.ebayListingUrl;ebay.classList.remove('hidden')}else{ebay.removeAttribute('href');ebay.classList.add('hidden')}if(l.sellerChampProductUrl){sc.href=l.sellerChampProductUrl;sc.classList.remove('hidden')}else{sc.removeAttribute('href');sc.classList.add('hidden')}}
 $('#backBtn').onclick=async()=>{if(idx>0){idx--;await saveIndex();renderPick();requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'auto'}))}};
 $('#nextBtn').onclick=async()=>{
   const l=currentLines[idx];const verifyOnHand=Number(l.quantityOnHand)>=1&&Number(l.quantityOnHand)<=3;
@@ -101,18 +101,28 @@ async function markCurrentFreight(stage,btn){
   }catch(e){$('#freightError').textContent=e.message}
   finally{btn.disabled=false;btn.textContent=old}
 }
-$('#forkliftBtn').onclick=()=>skipCurrent('small',$('#forkliftBtn'));
-$('#skipFreightBtn').onclick=()=>skipCurrent('freight',$('#skipFreightBtn'));
+let skipSaving=false;
+const skipDialog=$('#skipDialog');
+$('#skipBtn').onclick=()=>{
+  const l=currentLines[idx];if(!l||l.picked||l.freightId||skipSaving)return;
+  $('#skipDialogError').textContent='';skipDialog.showModal();
+};
+$('#skipCancel').onclick=()=>{if(!skipSaving)skipDialog.close()};
+skipDialog.addEventListener('cancel',event=>{if(skipSaving)event.preventDefault()});
+$('#skipSmallChoice').onclick=()=>skipCurrent('small',$('#skipSmallChoice'));
+$('#skipFreightChoice').onclick=()=>skipCurrent('freight',$('#skipFreightChoice'));
 async function skipCurrent(reason,btn){
-  const l=currentLines[idx];if(!l||l.picked||l.freightId)return;
-  const label=btn.textContent;$('.skipButtons').querySelectorAll('button').forEach(b=>b.disabled=true);btn.textContent='Saving…';
+  const l=currentLines[idx];if(!l||l.picked||l.freightId||skipSaving)return;
+  skipSaving=true;const label=btn.textContent;
+  skipDialog.querySelectorAll('button').forEach(b=>b.disabled=true);$('#skipBtn').disabled=true;btn.textContent='Saving…';$('#skipDialogError').textContent='';
   try{
     const r=await api(`/api/batches/${currentBatch.id}/lines/${l.id}/forklift`,{method:'POST',body:JSON.stringify({reason})});
-    Object.assign(l,r.line);currentBatch=r.batch;
+    Object.assign(l,r.line);currentBatch=r.batch;skipDialog.close();
     const next=normalNext(idx);
     if(next<0)await finishPickPass();
     else{idx=next;await saveIndex();renderPick();window.scrollTo({top:0,left:0,behavior:'auto'})}
-  }catch(e){alert(e.message)}finally{$('.skipButtons').querySelectorAll('button').forEach(b=>b.disabled=false);btn.textContent=label}
+  }catch(e){if(skipDialog.open)$('#skipDialogError').textContent=e.message;else alert(e.message)}
+  finally{skipSaving=false;skipDialog.querySelectorAll('button').forEach(b=>b.disabled=false);$('#skipBtn').disabled=false;btn.textContent=label}
 }
 $('#confirmQty').onchange=()=>$('#pickError').classList.add('hidden');
 $('#confirmOnHand').onchange=()=>$('#pickError').classList.add('hidden');
