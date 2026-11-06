@@ -325,11 +325,14 @@ app.get('/api/returns/:id/pdf', (req,res)=>{
 });
 
 async function getProductAndInventory(r){
-  let product = null;
-  if(r.product_id) try { product=(await sc(`/api/products/${r.product_id}`)).product; } catch {}
+  let product = null,detailLoaded=false;
+  if(r.product_id) try { product=await freshProduct(r.product_id);detailLoaded=true; } catch {}
   if(!product && r.sku){ const p=await sc(`/api/products?sku=${encodeURIComponent(r.sku)}&marketplace_account_id=${encodeURIComponent(r.marketplace_account_id||'')}&page=1&page_size=20`); const matches=(p.products||[]).filter(x=>String(x.sku||'').trim().toLowerCase()===String(r.sku).trim().toLowerCase());if(matches.length!==1)throw Error('Could not identify one exact SellerChamp product for this SKU. Review the Product ID.');product=matches[0]; }
   if(!product) throw new Error('Could not find matching SellerChamp product.');
-  const inv=(await sc(`/api/products/${product.id}/inventory_locations`)).inventory_locations||[];
+  if(!detailLoaded)product=await freshProduct(product.id);
+  const inventoryData=await sc(`/api/products/${product.id}/inventory_locations`);
+  if(!Array.isArray(inventoryData.inventory_locations))throw Error('SellerChamp did not return the current inventory locations. No update was made.');
+  const inv=inventoryData.inventory_locations;
   return {product,inv};
 }
 app.get('/api/returns/:id/inventory', async(req,res)=>{ try{
@@ -347,7 +350,10 @@ function archiveRecord(r, action, details){
   r.history.push({at:now(),action,details});
 }
 async function freshProduct(productId){
-  const j=await sc(`/api/products/${productId}`); return j.product||j;
+  const j=await sc(`/api/products/${encodeURIComponent(productId)}.json`);
+  const product=j.product||j;
+  if(!product||!product.id||String(product.id)!==String(productId))throw Error('SellerChamp did not return the requested Product detail.');
+  return product;
 }
 async function addAtLocation(product, inv, loc, qty){
   const row = inv.find(x=>String(x.location).toLowerCase()===String(loc).toLowerCase());

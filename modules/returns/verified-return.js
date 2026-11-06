@@ -25,7 +25,7 @@ module.exports=function({readDb,writeDb,getProductAndInventory,freshProduct,sc,a
      if(!loc||!Number.isInteger(qty)||qty<1)throw Error('Enter a location and a whole-number return quantity greater than zero.');
      const matches=inv.filter(x=>String(x.location||'').trim().toLowerCase()===loc.toLowerCase());if(matches.length>1)throw Error('Multiple inventory rows have this location. Review them in SellerChamp.');
      const before=matches.length?number(matches[0].quantity_available):0,reserve=number(product.reserve_quantity);
-     if(before===null||(mode==='reserve'&&reserve===null))throw Error('SellerChamp did not return usable current quantities. No update was made.');
+     if(before===null||(mode==='reserve'&&reserve===null))throw Error(before===null?'SellerChamp did not return a usable stock count at '+loc+'. No update was made.':'SellerChamp Product detail did not return the current reserve count. No update was made.');
      op={mode,product_id:product.id,location:loc,location_id:matches[0]?.id,quantity_added:qty,before_quantity:before,expected_quantity:before+qty,before_reserve:reserve,expected_reserve:mode==='reserve'?reserve+qty:null,reserve_location:String(input.reserve_location||loc)};
     }
     r=save(id,x=>{x.processing_operation=op;x.status='verification_pending';x.history.push({at:now(),action:'inventory_action_started',details:`${mode}: target ${op.expected_quantity} at ${op.location}`});});
