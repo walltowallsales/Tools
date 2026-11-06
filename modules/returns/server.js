@@ -7,7 +7,7 @@ const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const SC_BASE = 'https://app.sellerchamp.com';
+const SC_BASE = (process.env.SELLERCHAMP_BASE_URL || 'https://app.sellerchamp.com').replace(/\/$/,'');
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const DB_FILE = path.join(DATA_DIR, 'returns.json');
@@ -22,6 +22,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const readDb = () => { try { return JSON.parse(fs.readFileSync(DB_FILE, 'utf8') || '[]'); } catch { return []; } };
 const writeDb = rows => { const tmp = DB_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(rows, null, 2)); fs.renameSync(tmp, DB_FILE); };
 const now = () => new Date().toISOString();
+const sleep = ms => new Promise(resolve=>setTimeout(resolve,ms));
 const digits = s => String(s || '').replace(/\D/g, '');
 const formatOrder = s => { const d = digits(s); return d.length === 12 ? `${d.slice(0,2)}-${d.slice(2,7)}-${d.slice(7,12)}` : String(s || '').trim(); };
 const AUTH_COOKIE = 'sc_returns_auth';
@@ -326,7 +327,7 @@ app.get('/api/returns/:id/pdf', (req,res)=>{
 async function getProductAndInventory(r){
   let product = null;
   if(r.product_id) try { product=(await sc(`/api/products/${r.product_id}`)).product; } catch {}
-  if(!product && r.sku){ const p=await sc(`/api/products?sku=${encodeURIComponent(r.sku)}&marketplace_account_id=${encodeURIComponent(r.marketplace_account_id||'')}&page=1&page_size=20`); product=(p.products||[]).find(x=>x.sku===r.sku)||(p.products||[])[0]; }
+  if(!product && r.sku){ const p=await sc(`/api/products?sku=${encodeURIComponent(r.sku)}&marketplace_account_id=${encodeURIComponent(r.marketplace_account_id||'')}&page=1&page_size=20`); const matches=(p.products||[]).filter(x=>String(x.sku||'').trim().toLowerCase()===String(r.sku).trim().toLowerCase());if(matches.length!==1)throw Error('Could not identify one exact SellerChamp product for this SKU. Review the Product ID.');product=matches[0]; }
   if(!product) throw new Error('Could not find matching SellerChamp product.');
   const inv=(await sc(`/api/products/${product.id}/inventory_locations`)).inventory_locations||[];
   return {product,inv};
@@ -386,39 +387,10 @@ app.get('/api/returns/:id/listing-status', async(req,res)=>{
   }catch(e){res.status(500).json({error:e.message})}
 });
 
-app.post('/api/returns/:id/add-inventory', async(req,res)=>{
-  try{
-    const db=readDb(), idx=db.findIndex(x=>x.id===req.params.id); if(idx<0)return res.status(404).json({error:'Return not found'});
-    const r=db[idx];
-    if(['completed','archived'].includes(r.status)) return res.status(409).json({error:'This return has already been processed.'});
-    const qty=Number(req.body.qty||r.returned_qty||1), {product,inv}=await getProductAndInventory(r), loc=req.body.location||r.location;
-    const beforeRow=inv.find(x=>String(x.location||'').toLowerCase()===String(loc||'').toLowerCase());
-    const beforeQty=Number(beforeRow?.quantity_available||0);
-    await addAtLocation(product,inv,loc,qty);
-    const refreshed=await freshProduct(product.id);
-    const marketplaceStatus=String(refreshed.marketplace_status||product.marketplace_status||'unknown').toLowerCase();
-    r.inventory_result={at:now(),qty,location:loc,product_id:product.id,marketplace_status:marketplaceStatus};
-    r.updated_at=now();
-    r.history.push({at:now(),action:'inventory_added',details:`Added ${qty} at ${loc}; marketplace status ${marketplaceStatus}`});
-    r.status='inventory_added_pending_listing';
-    const after=await getProductAndInventory(r);
-    const afterRow=after.inv.find(x=>String(x.location||'').toLowerCase()===String(loc||'').toLowerCase());
-    const currentQty=Number(afterRow?.quantity_available||0);
-    const expectedQty=beforeQty+qty;
-    r.inventory_result.quantity_available=currentQty;
-    r.inventory_result.before_quantity=beforeQty;
-    r.inventory_result.expected_quantity=expectedQty;
-    writeDb(db);
-    if(!afterRow || currentQty!==expectedQty){
-      return res.status(502).json({error:`SellerChamp did not change ${loc} as expected. Before: ${beforeQty}. Added: ${qty}. Expected: ${expectedQty}. SellerChamp now reports: ${currentQty}. The return remains in Process Returns.`,before_quantity:beforeQty,expected_quantity:expectedQty,quantity_available:currentQty,location:loc});
-    }
-    let cleanup={removed:[],failed:[]};
-    try{cleanup=await cleanupZeroLocationsAfterMove(product,loc)}catch{}
-    if(cleanup.removed.length) r.history.push({at:now(),action:'zero_locations_removed',details:`Removed zero-quantity locations: ${cleanup.removed.join(', ')}`});
-    writeDb(db);
-    res.json({ok:true,marketplace_status:marketplaceStatus,archived:false,product_id:product.id,ebay_url:ebayUrl(refreshed)||r.ebay_url||'',location:loc,quantity_available:currentQty,before_quantity:beforeQty,expected_quantity:expectedQty,removed_zero_locations:cleanup.removed,failed_zero_locations:cleanup.failed,cleanup_results:cleanup.results,delete_if_empty_updated:cleanup.delete_if_empty_updated||[]});
-  }catch(e){res.status(500).json({error:e.message});}
-});
+const processVerifiedReturn=require('./verified-return')({readDb,writeDb,getProductAndInventory,freshProduct,sc,archiveRecord,sleep,now});
+for(const [route,mode] of [['add-inventory','normal'],['add-reserve','reserve']]){
+ app.post('/api/returns/:id/'+route,async(req,res)=>{try{res.json(await processVerifiedReturn(req.params.id,mode,req.body))}catch(e){res.status(409).json({error:e.message})}});
+}
 app.post('/api/returns/:id/set-inventory-quantity', async(req,res)=>{
   try{
     const db=readDb(), r=db.find(x=>x.id===req.params.id); if(!r)return res.status(404).json({error:'Return not found'});
@@ -433,14 +405,7 @@ app.post('/api/returns/:id/set-inventory-quantity', async(req,res)=>{
   }catch(e){res.status(500).json({error:e.message})}
 });
 
-app.post('/api/returns/:id/archive-active', (req,res)=>{
-  try{
-    const db=readDb(), r=db.find(x=>x.id===req.params.id); if(!r)return res.status(404).json({error:'Return not found'});
-    if(r.status!=='inventory_added_pending_listing')return res.status(409).json({error:'Inventory must be added first.'});
-    archiveRecord(r,'archived','Inventory returned; eBay listing active; quantity reviewed.'); writeDb(db); res.json({ok:true,sku:r.sku||''});
-  }catch(e){res.status(500).json({error:e.message})}
-});
-
+app.post('/api/returns/:id/archive-active',async(req,res)=>{try{res.json(await processVerifiedReturn(req.params.id,'normal'))}catch(e){res.status(409).json({error:e.message})}});
 app.post('/api/returns/:id/relist-and-archive', async(req,res)=>{
   try{
     const db=readDb(), idx=db.findIndex(x=>x.id===req.params.id); if(idx<0)return res.status(404).json({error:'Return not found'});
@@ -474,45 +439,7 @@ app.post('/api/returns/:id/relist-and-archive', async(req,res)=>{
     res.json({ok:true,relist_queued:true,marketplace_status:immediateStatus,archived:true,sku:r.sku||'',sellerchamp_response:relistResponse});
   }catch(e){res.status(500).json({error:e.message});}
 });
-app.post('/api/returns/:id/archive-inactive', (req,res)=>{
-  try{
-    const db=readDb(), idx=db.findIndex(x=>x.id===req.params.id); if(idx<0)return res.status(404).json({error:'Return not found'});
-    const r=db[idx]; if(r.status!=='inventory_added_pending_listing') return res.status(409).json({error:'This return is not waiting for an eBay listing decision.'});
-    archiveRecord(r,'archived_inactive','Inventory returned; eBay listing intentionally left inactive.'); writeDb(db); res.json({ok:true});
-  }catch(e){res.status(500).json({error:e.message});}
-});
-app.post('/api/returns/:id/add-reserve', async(req,res)=>{
-  try{
-    const db=readDb(), idx=db.findIndex(x=>x.id===req.params.id);
-    if(idx<0)return res.status(404).json({error:'Return not found'});
-    const r=db[idx]; if(['completed','archived'].includes(r.status))return res.status(409).json({error:'This return has already been processed.'});
-    const qty=Number(req.body.qty||r.returned_qty||1), {product,inv}=await getProductAndInventory(r), loc=req.body.location||r.location;
-    const beforeRow=inv.find(x=>String(x.location||'').toLowerCase()===String(loc||'').toLowerCase());
-    const beforeOnHand=Number(beforeRow?.quantity_available||0);
-    const beforeReserve=Number(product.reserve_quantity||0);
-    await addAtLocation(product,inv,loc,qty);
-    const requestedReserve=beforeReserve+qty;
-    await sc(`/api/products/${product.id}`,{method:'PUT',body:JSON.stringify({product:{reserve_quantity:requestedReserve,reserve_quantity_location:req.body.reserve_location||loc}})});
-    const expectedOnHand=beforeOnHand+qty, expectedReserve=beforeReserve+qty;
-    let verified=[], row=null, onHand=0, verifiedProduct=null, verifiedReserve=0;
-    // SellerChamp can accept the reserve update before its read API reflects it.
-    // Poll briefly so the review screen reports the settled values when possible.
-    for(const delay of [3000,3000,4000]){
-      await sleep(delay);
-      verified=(await sc(`/api/products/${product.id}/inventory_locations`)).inventory_locations||[];
-      row=verified.find(x=>String(x.location||'').toLowerCase()===String(loc||'').toLowerCase());
-      onHand=Number(row?.quantity_available||0);
-      verifiedProduct=await freshProduct(product.id);
-      verifiedReserve=Number(verifiedProduct?.reserve_quantity||0);
-      if(onHand===expectedOnHand && verifiedReserve===expectedReserve) break;
-    }
-    r.status='reserve_added_pending_review'; r.updated_at=now(); r.reserve_result={location:loc,quantity_added:qty,before_on_hand:beforeOnHand,quantity_available:onHand,before_reserve:beforeReserve,reserve_quantity:verifiedReserve,expected_on_hand:expectedOnHand,expected_reserve:expectedReserve};
-    r.history=r.history||[]; r.history.push({at:now(),action:'reserve_added_pending_review',details:`Added ${qty} at ${loc}. On hand ${beforeOnHand} → ${onHand}; reserve ${beforeReserve} → ${verifiedReserve}. Awaiting quantity review.`});
-    writeDb(db);
-    res.json({ok:true,archived:false,sku:r.sku||'',title:r.title||'',location:loc,quantity_added:qty,before_on_hand:beforeOnHand,quantity_available:onHand,before_reserve:beforeReserve,reserve_quantity:verifiedReserve,expected_on_hand:expectedOnHand,expected_reserve:expectedReserve,on_hand_verified:onHand===expectedOnHand,reserve_verified:verifiedReserve===expectedReserve});
-  }catch(e){res.status(500).json({error:e.message});}
-});
-
+app.post('/api/returns/:id/archive-inactive',async(req,res)=>{try{res.json(await processVerifiedReturn(req.params.id,'normal'))}catch(e){res.status(409).json({error:e.message})}});
 app.post('/api/returns/:id/set-reserve-quantities', async(req,res)=>{
   try{
     const db=readDb(), r=db.find(x=>x.id===req.params.id); if(!r)return res.status(404).json({error:'Return not found'});
@@ -533,15 +460,7 @@ app.post('/api/returns/:id/set-reserve-quantities', async(req,res)=>{
   }catch(e){res.status(500).json({error:e.message});}
 });
 
-app.post('/api/returns/:id/archive-reserve', (req,res)=>{
-  try{
-    const db=readDb(), r=db.find(x=>x.id===req.params.id); if(!r)return res.status(404).json({error:'Return not found'});
-    if(r.status!=='reserve_added_pending_review')return res.status(409).json({error:'Reserve quantities must be reviewed first.'});
-    const loc=r.reserve_result?.location||r.location;
-    archiveRecord(r,'inventory_reserved','Inventory and reserve quantities reviewed and confirmed.'); writeDb(db);
-    res.json({ok:true,archived:true,sku:r.sku||'',title:r.title||'',location:loc});
-  }catch(e){res.status(500).json({error:e.message});}
-});
+app.post('/api/returns/:id/archive-reserve',async(req,res)=>{try{res.json(await processVerifiedReturn(req.params.id,'reserve'))}catch(e){res.status(409).json({error:e.message})}});
 app.post('/api/returns/:id/duplicate', async(req,res)=>{
   try{
     const db=readDb(), idx=db.findIndex(x=>x.id===req.params.id); if(idx<0)return res.status(404).json({error:'Return not found'}); const r=db[idx], {product}=await getProductAndInventory(r);

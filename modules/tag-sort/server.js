@@ -198,6 +198,7 @@ app.post('/api/product/:id/quantity',async(req,res)=>{try{
   saveLiveProduct(product);res.json({ok:true,verified:true,message:`Verified: ${verified.location||'location'} now has quantity ${quantity}.`,product});
 }catch(e){res.status(e.status||500).json({error:'SellerChamp quantity update failed.',details:e.data||e.message})}});
 app.post('/api/product/:id/location',async(req,res)=>{try{
+  floorRecent.clear();
   const locationId=String(req.body?.location_id||''),oldLocation=String(req.body?.old_location||''),newLocation=String(req.body?.new_location||'').trim();
   if(!newLocation)return res.status(400).json({error:'Enter a new location.'});
   const before=(await sc(`/api/products/${encodeURIComponent(req.params.id)}/inventory_locations`)).inventory_locations||[];
@@ -295,12 +296,15 @@ app.post('/api/product/:id/end-listing',async(req,res)=>{try{
 // FLOOR uses the existing shared index and SellerChamp request queue.
 const FLOOR_CACHE=path.join(DATA_DIR,'floor-verified-results.json');
 let floorScan={checking:false,checked:0,total:0,results:[],error:'',finished_at:null};
+const floorRecent=new Map();
+const floorKey=row=>`${row.source}|${row.manifest_id||''}|${row.id}`;
+const floorSignature=row=>JSON.stringify([row.sku,row.product_id,row.locations]);
 try{const cached=JSON.parse(fs.readFileSync(FLOOR_CACHE,'utf8'));if(Array.isArray(cached.results)&&cached.finished_at)floorScan={...floorScan,...cached,checking:false}}catch{}
 function saveFloorScan(){write(FLOOR_CACHE,floorScan,'floor')}
 
 const floorStock=row=>(row.locations||[]).some(x=>String(x.location||'').trim().toUpperCase()==='FLOOR'&&Number(x.quantity)>0);
 // Resolve a former Batch item against current Product inventory before trusting its historical location.
-async function promotedFloorProduct(row){
+async function promotedFloorProduct(row,readState=shelfState){
  const sku=String(row.sku||'').trim();
  if(!sku)return null;
  const data=await sc(`/api/products?sku=${encodeURIComponent(sku)}&page=1&page_size=100`);
@@ -308,47 +312,60 @@ async function promotedFloorProduct(row){
  if(data.products.length>=100)throw Error('Product lookup returned too many matches; this Batch item needs review.');
  let matches=data.products.filter(p=>String(p.sku||'').trim().toLowerCase()===sku.toLowerCase());
  if(row.marketplace_account_id)matches=matches.filter(p=>String(p.marketplace_account_id||'')===String(row.marketplace_account_id));
+ const linkedMatch=matches.find(p=>row.product_id&&String(p.id)===String(row.product_id));
+ if(linkedMatch)matches=[linkedMatch];
  const verified=[];
  for(const p of matches){
   if(!p.id)continue;
-  const state=await shelfState(p.id),status=String(state.product.marketplace_status||state.product.status||'').toLowerCase();
+  const state=await readState(p.id),status=String(state.product.marketplace_status||state.product.status||'').toLowerCase();
   if(state.locations.some(x=>x.location===undefined||x.quantity_available===undefined||x.quantity_available===null||!Number.isFinite(Number(x.quantity_available))))throw Error('Current Product inventory is incomplete; this item has not been removed.');
   const locations=state.locations.map(x=>({id:String(x.id),location:String(x.location||''),quantity:Number(x.quantity_available)}));
   const real=status==='active'||locations.some(x=>x.quantity>0)||Boolean(state.product.marketplace_id&&['inactive','ended','submitted'].includes(status));
   if(real)verified.push({id:state.product.id,source:'product',sku:state.product.sku||sku,title:titlesOf(state.product)[0]||row.title||'',image:imageOf(state.product)||row.image||'',locations,quantity_available:locations.reduce((n,x)=>n+x.quantity,0),status});
  }
- if(verified.length>1){const linked=verified.find(p=>row.product_id&&String(p.id)===String(row.product_id));if(linked)return linked;throw Error('Multiple Products have this SKU. Cannot safely choose the current inventory.');}
+ if(verified.length>1)return {ambiguous:true,products:verified};
  return verified[0]||null;
 }
 function replaceFloorBatch(row,product){
+ if(product.ambiguous){for(const p of product.products)replaceFloorBatch(row,p);return;}
+
  floorScan.results=floorScan.results.filter(x=>!(x.source==='batch'&&String(x.id)===String(row.id)&&String(x.manifest_id)===String(row.manifest_id))&&!(x.source==='product'&&String(x.id)===String(product.id)));
  if(floorStock(product))floorScan.results.push(product);
  saveLiveProduct(product);
  if(floorScan.finished_at)saveFloorScan();
 }
 async function scanFloor(){
- floorScan={checking:true,checked:0,total:0,results:[],error:'',finished_at:null};
+ floorScan={...floorScan,checking:true,checked:0,total:0,error:''};
  try{
   const all=currentItems(),products=all.filter(x=>x.source==='product'),seen=new Set();
   const candidates=all.filter(x=>{const key=`${x.source}|${x.manifest_id||''}|${x.id}`;if(seen.has(key)||!(x.source==='batch'?(x.locations||[]).some(l=>String(l.location||'').trim().toUpperCase()==='FLOOR'):floorStock(x)))return false;seen.add(key);return true});
   candidates.sort((a,b)=>(a.source==='product'?0:1)-(b.source==='product'?0:1));
-  floorScan.total=candidates.length;const manifests=new Map();
+  floorScan.total=candidates.length;const manifests=new Map(),states=new Map(),promotions=new Map();
+  const readState=async id=>{const key=String(id);if(!states.has(key))states.set(key,shelfState(id));return states.get(key)};
+  // Keep prior results visible while each candidate is refreshed. New indexed candidates are labelled unverified.
+  for(const row of candidates)if(!floorScan.results.some(x=>floorKey(x)===floorKey(row)))floorScan.results.push({...row,verification_status:'pending'});
+  const candidateKeys=new Set(candidates.map(floorKey));floorScan.results=floorScan.results.filter(x=>candidateKeys.has(floorKey(x)));
+
   for(const row of candidates){
+   const key=floorKey(row),cached=floorRecent.get(key),signature=floorSignature(row);
+   if(cached&&cached.signature===signature&&Date.now()-cached.at<300000){floorScan.results=floorScan.results.filter(x=>floorKey(x)!==key);for(const item of cached.rows||[]){floorScan.results=floorScan.results.filter(x=>floorKey(x)!==floorKey(item));floorScan.results.push(item)}floorScan.checked++;continue;}
    try{
     if(row.source==='product'){
-     const state=await shelfState(row.id);
+     const state=await readState(row.id);
+     floorScan.results=floorScan.results.filter(x=>floorKey(x)!==key);
      const live={...row,locations:state.locations.map(x=>({id:String(x.id),location:String(x.location||''),quantity:Number(x.quantity_available||0)})),quantity_available:Number(state.product.quantity_available||0)};
-     saveLiveProduct(live);if(floorStock(live)&&live.quantity_available>0)floorScan.results.push(live);
+     saveLiveProduct(live);if(floorStock(live)&&live.quantity_available>0)floorScan.results.push({...live,verification_status:'verified',verified_at:new Date().toISOString()});
     }else{
-     const promoted=await promotedFloorProduct(row);
-     if(promoted){replaceFloorBatch(row,promoted);continue;}
-     const key=String(row.manifest_id);
-     if(!manifests.has(key)){
+     const promotionKey=JSON.stringify([String(row.sku||'').toLowerCase(),row.marketplace_account_id,row.product_id]);if(!promotions.has(promotionKey))promotions.set(promotionKey,promotedFloorProduct(row,readState));const promoted=await promotions.get(promotionKey);
+     if(promoted){replaceFloorBatch(row,promoted);floorRecent.set(key,{signature,at:Date.now(),rows:(promoted.ambiguous?promoted.products:[promoted]).filter(floorStock)});continue;}
+     const manifestKey=String(row.manifest_id);
+     if(!manifests.has(manifestKey)){
       const listings=[];
-      for(let page=1;page<=100;page++){const data=await batchFetch(`/api/manifests/${encodeURIComponent(key)}/product_listings?page=${page}&page_size=100`);if(!Array.isArray(data.product_listings))throw Error('Batch inventory could not be verified.');listings.push(...data.product_listings);if(data.product_listings.length<100)break}
-      manifests.set(key,listings);
+      for(let page=1;page<=100;page++){const data=await batchFetch(`/api/manifests/${encodeURIComponent(manifestKey)}/product_listings?page=${page}&page_size=100`);if(!Array.isArray(data.product_listings))throw Error('Batch inventory could not be verified.');listings.push(...data.product_listings);if(data.product_listings.length<100)break}
+      manifests.set(manifestKey,listings);
      }
-     const live=manifests.get(key).find(x=>String(x.id)===String(row.id));
+     const live=manifests.get(manifestKey).find(x=>String(x.id)===String(row.id));
+     floorScan.results=floorScan.results.filter(x=>floorKey(x)!==key);
      if(!live)continue;
      const status=String(live.list_status||live.marketplace_status||live.listing_status||live.status||'').trim().toLowerCase().replace(/[ -]+/g,'_');
      // Unknown/submitted/inactive Batch quantities may be the original received count.
@@ -366,8 +383,10 @@ async function scanFloor(){
      ));
      if(floorStock(fresh)&&!duplicate)floorScan.results.push(fresh);
     }
-   }catch(e){floorScan.error='Some items could not be verified and were excluded. '+e.message}
+       floorRecent.set(key,{signature,at:Date.now(),rows:floorScan.results.filter(x=>floorKey(x)===key)});
+   }catch(e){floorScan.results=floorScan.results.filter(x=>floorKey(x)!==key);floorScan.error='Some items need a live check before moving. '+e.message;floorScan.results.push({...row,verification_status:'check_needed',verification_error:e.message});}
    finally{floorScan.checked++}
+
   }
   floorScan.results.sort((a,b)=>natural(a.sku,b.sku));floorScan.finished_at=new Date().toISOString();
  }catch(e){floorScan.error=e.message}finally{floorScan.checking=false;if(floorScan.finished_at)saveFloorScan()}
@@ -377,13 +396,15 @@ app.get('/api/floor',(req,res)=>{
  const p=load(PRODUCT_INDEX),b=load(BATCH_INDEX);res.json({...floorScan,count:floorScan.results.length,building,progress,product_index_updated_at:p.updated_at,batch_index_updated_at:b.updated_at});
 });
 app.get('/api/floor/product/:id/live',async(req,res)=>{try{
+ floorRecent.clear();
  const state=await shelfState(req.params.id);
  const product={id:req.params.id,sku:state.product.sku||'',title:titlesOf(state.product)[0]||'',image:imageOf(state.product),source:'product',locations:state.locations.map(x=>({id:String(x.id),location:String(x.location||''),quantity:Number(x.quantity_available||0)}))};
  saveLiveProduct(product);res.json({product});
 }catch(e){res.status(e.status||500).json({error:'Could not verify current inventory locations.',details:e.message})}});
 app.get('/api/floor/batch/:manifest/:id/live',async(req,res)=>{try{
+ floorRecent.clear();
  const original=currentItems().find(x=>x.source==='batch'&&String(x.id)===String(req.params.id)&&String(x.manifest_id)===String(req.params.manifest))||floorScan.results.find(x=>x.source==='batch'&&String(x.id)===String(req.params.id)&&String(x.manifest_id)===String(req.params.manifest));
- if(original){const promoted=await promotedFloorProduct(original);if(promoted){replaceFloorBatch(original,promoted);return res.json({product:promoted,promoted:true});}}
+ if(original){const promoted=await promotedFloorProduct(original);if(promoted){replaceFloorBatch(original,promoted);if(promoted.ambiguous)return res.status(409).json({error:'Multiple Products share this SKU. Open the individual Product cards in the FLOOR list to choose the correct item.'});return res.json({product:promoted,promoted:true});}}
  let found=null;
  for(let page=1;page<=100;page++){
   const data=await batchFetch(`/api/manifests/${encodeURIComponent(req.params.manifest)}/product_listings?page=${page}&page_size=100`);
@@ -391,7 +412,7 @@ app.get('/api/floor/batch/:manifest/:id/live',async(req,res)=>{try{
   found=data.product_listings.find(x=>String(x.id)===String(req.params.id));if(found||data.product_listings.length<100)break;
  }
  if(!found)return res.status(404).json({error:'This batch item could not be found. It has not been removed from your list.'});
- if(!original){const promoted=await promotedFloorProduct({...found,manifest_id:req.params.manifest});if(promoted){replaceFloorBatch({...found,manifest_id:req.params.manifest},promoted);return res.json({product:promoted,promoted:true});}}
+ if(!original){const promoted=await promotedFloorProduct({...found,manifest_id:req.params.manifest});if(promoted){replaceFloorBatch({...found,manifest_id:req.params.manifest},promoted);if(promoted.ambiguous)return res.status(409).json({error:'Multiple Products share this SKU. Open the individual Product cards in the FLOOR list.'});return res.json({product:promoted,promoted:true});}}
  const foundStatus=String(found.list_status||found.marketplace_status||found.status||'').toLowerCase();
  if(['active','submitted'].includes(foundStatus)||Number(found.quantity_listed)>0||found.submitted===true||found.submitted_at)throw Error('This Batch item has been submitted, but current Product inventory is not available yet. Try Check Again shortly.');
  if(found.location===undefined&&found.item_location===undefined)throw Error('SellerChamp did not return this batch item’s location.');

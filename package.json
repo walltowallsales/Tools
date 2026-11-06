@@ -1,6 +1,6 @@
 {
   "name": "sellerchamp-tools-suite",
-  "version": "1.54.0",
+  "version": "1.55.0",
   "private": true,
   "engines": {
     "node": ">=20"
@@ -21,7 +21,11 @@
     "test:ebay-notifications": "node scripts/test-ebay-notifications.js",
     "test:ebay-oauth": "node scripts/test-ebay-oauth.js",
     "test:pick-skip-reasons": "node scripts/test-pick-skip-reasons.js",
-    "test:pick-skip-dialog": "node scripts/test-pick-skip-dialog.js"
+    "test:pick-skip-dialog": "node scripts/test-pick-skip-dialog.js",
+    "test:returns-verified": "node scripts/test-returns-verified.js",
+    "test:returns-endpoints": "node scripts/test-returns-endpoints.js",
+    "test:returns-ui": "node scripts/test-returns-ui.js",
+    "test:floor-cache": "node scripts/test-floor-cache.js"
   },
   "dependencies": {
     "express": "^4.21.2",

@@ -105,7 +105,10 @@ $('#purgeArchive').onclick=async()=>{
 };
 
 $('#refreshQueue').onclick=loadQueue;
-async function loadQueue(){try{const j=await api('/api/returns');const count=j.returns.length;$('#queue').innerHTML=`<div style="background:#172238;color:#fff;border-radius:16px;padding:14px 18px;margin-bottom:16px;text-align:center;font-size:24px;font-weight:900">Returns to Process: ${count}</div>`+(count?j.returns.map(r=>`<div class="queue-row" style="border-bottom:6px solid #172238;padding-bottom:28px;margin-bottom:28px"><div style="grid-column:1 / -1;display:block;width:100%;box-sizing:border-box;background:#fff3b0;border:3px solid #d39a00;border-radius:12px;padding:10px 14px;margin:0 0 12px 0;font-size:21px;line-height:1.25;font-weight:900;text-align:left"><span style="font-size:14px;letter-spacing:.04em;margin-right:8px">LOCATION:</span><span>${esc(r.location||'NO LOC')}</span></div><div style="grid-column:1 / -1;clear:both">${r.photos&&r.photos[0]?`<img src="${esc(r.photos[0])}" alt="Return photo" style="display:block;width:76px;height:76px;object-fit:cover;border-radius:10px;margin-bottom:10px">`:''}<div><b>Order: ${esc(r.order_number)}</b><br>${r.sellerchamp_url?`<a target="_blank" href="${esc(r.sellerchamp_url)}" style="font-weight:800">SKU: ${esc(r.sku)}</a>`:`<b>SKU: ${esc(r.sku)}</b>`}<br>${esc(r.title)}<br><span class="badge">${esc(r.disposition==='return_inventory'?'Return to Inventory':r.disposition==='reserve_inventory'?'Put in Reserve':r.disposition==='duplicate_product'?'Create a separate product/listing':r.disposition)}</span></div></div><div class="row" style="grid-column:1 / -1"><button onclick="showReturn('${r.id}')">Open</button><button class="danger" onclick="deleteReturn('${r.id}','${esc(r.sku)}')">Delete</button></div></div>`).join(''):'<p>No returns waiting.</p>')}catch(e){$('#queue').innerHTML=`<p class="error">${esc(e.message)}</p>`}}
+let queueRows=[];
+$('#queueSearch').addEventListener('input',renderQueue);
+async function loadQueue(){try{const j=await api('/api/returns');queueRows=j.returns||[];renderQueue()}catch(e){$('#queue').innerHTML=`<p class="error">${esc(e.message)}</p>`}}
+function renderQueue(){const q=$('#queueSearch').value.trim().toLowerCase();const filtered=queueRows.filter(r=>!q||[r.sku,r.title].some(v=>String(v||'').toLowerCase().includes(q)));const count=filtered.length;$('#queue').innerHTML=`<div style="background:#172238;color:#fff;border-radius:16px;padding:14px 18px;margin-bottom:16px;text-align:center;font-size:24px;font-weight:900">Returns to Process: ${count}${q?` (${queueRows.length} total)`: ''}</div>`+(count?filtered.map(r=>`<div class="queue-row" style="border-bottom:6px solid #172238;padding-bottom:28px;margin-bottom:28px"><div style="grid-column:1 / -1;display:block;width:100%;box-sizing:border-box;background:#fff3b0;border:3px solid #d39a00;border-radius:12px;padding:10px 14px;margin:0 0 12px 0;font-size:21px;line-height:1.25;font-weight:900;text-align:left"><span style="font-size:14px;letter-spacing:.04em;margin-right:8px">LOCATION:</span><span>${esc(r.location||'NO LOC')}</span></div><div style="grid-column:1 / -1;clear:both">${r.photos&&r.photos[0]?`<img src="${esc(r.photos[0])}" alt="Return photo" style="display:block;width:76px;height:76px;object-fit:cover;border-radius:10px;margin-bottom:10px">`:''}<div><b>Order: ${esc(r.order_number)}</b><br>${r.sellerchamp_url?`<a target="_blank" href="${esc(r.sellerchamp_url)}" style="font-weight:800">SKU: ${esc(r.sku)}</a>`:`<b>SKU: ${esc(r.sku)}</b>`}<br>${esc(r.title)}<br><span class="badge">${esc(r.disposition==='return_inventory'?'Return to Inventory':r.disposition==='reserve_inventory'?'Put in Reserve':r.disposition==='duplicate_product'?'Create a separate product/listing':r.disposition)}</span>${r.status==='verification_pending'?'<p class="error">Update saved — verification needed. Open to recheck.</p>':''}</div></div><div class="row" style="grid-column:1 / -1"><button onclick="showReturn('${r.id}')">Open</button><button class="danger" onclick="deleteReturn('${r.id}','${esc(r.sku)}')">Delete</button></div></div>`).join(''):'<p>No returns waiting.</p>')}
 
 window.deleteReturn=async(id,sku)=>{
   if(!confirm(`Delete return ${sku||''}?\n\nThis permanently deletes the return record and its stored photos. This cannot be undone.\n\nPress OK only if you intended to delete this record.`))return;
@@ -116,7 +119,7 @@ window.deleteReturn=async(id,sku)=>{
   }catch(e){alert(e.message)}
 };
 
-window.showReturn=async id=>{try{const r=(await api('/api/returns/'+id)).return;let inventory='';try{
+window.showReturn=async id=>{$('#detail').innerHTML='<p>Loading return and current inventory…</p>';if(!$('#returnDialog').open)$('#returnDialog').showModal();try{const r=(await api('/api/returns/'+id)).return;let inventory='';try{
   const inv=await api(`/api/returns/${id}/inventory`);
   const rows=inv.inv||[];
   const orderLoc=String(r.location||'').trim();
@@ -136,24 +139,29 @@ window.showReturn=async id=>{try{const r=(await api('/api/returns/'+id)).return;
   const el=$('#normalListingStatus');
   if(el){
     const status=String(st.marketplace_status||'unknown').toUpperCase();
-    el.innerHTML=`<b>eBay listing status:</b> ${esc(status)}${status!=='ACTIVE'?'<br><span class="error">This listing is not active. After adding the inventory, you will be given the option to activate it.</span>':''}`;
+    el.innerHTML=`<b>eBay listing status:</b> ${esc(status)}${status!=='ACTIVE'?'<br><span class="error">This listing is not active. Adding inventory will not activate it. Check activation separately in SellerChamp.</span>':''}`;
   }
 }catch(e){const el=$('#normalListingStatus');if(el)el.innerHTML=`<b>eBay listing status:</b> Unable to determine — ${esc(e.message)}`}
-$('#detail').scrollIntoView({behavior:'smooth',block:'start'})}catch(e){$('#detail').innerHTML=`<div class="card error">${esc(e.message)}</div>`}};
-function processPanel(r){return `<div class="card"><h2>Process Return</h2><div class="big-choice"><h3>1. Add back to normal inventory</h3><div id="normalListingStatus" class="listing-warning"><b>eBay listing status:</b> Checking…</div><input id="normalLoc" value="${esc(r.location)}"><input id="normalQty" type="number" inputmode="numeric" value="${esc(r.returned_qty)}"><button onclick="doAdd('${r.id}')">Add to Inventory & Complete</button></div><div class="big-choice"><h3>2. Add to inventory + reserve</h3><input id="reserveLoc" value="${esc(r.location)}"><input id="reserveNote" value="${esc(r.location)}"><input id="reserveQty" type="number" value="${esc(r.returned_qty)}"><button onclick="doReserve('${r.id}')">Add + Reserve & Complete</button></div><div class="big-choice"><h3>3. Create separate eBay product/listing</h3><input id="newSku" value="${esc(r.sku)}-RET"><input id="newTitle" value="${esc(r.title)}"><select id="newCondition"><option value="like_new">Like New</option><option value="very_good">Very Good</option><option value="good">Good</option><option value="acceptable">Acceptable</option><option value="refurbished">Refurbished</option><option value="salvage">Salvage</option></select><textarea id="newRemarks">${esc(r.notes)}</textarea><input id="newLoc" value="${esc(r.location)}"><input id="newQty" type="number" value="${esc(r.returned_qty)}"><input id="newPrice" type="number" step="0.01" placeholder="Price"><button onclick="doDuplicate('${r.id}')">Create & Activate Listing</button></div><p id="processMsg"></p></div>`}
-window.doAdd=id=>{
-  showInventoryConfirm(async()=>{
-    try{
-    $('#processMsg').textContent='Adding inventory and checking current stock…';
-    const j=await api(`/api/returns/${id}/add-inventory`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:$('#normalLoc').value,qty:$('#normalQty').value})});
-    const status=String(j.marketplace_status||'unknown').toLowerCase();
-    const cleanupMsg=(j.delete_if_empty_updated||[]).map(x=>`<br><b>${esc(x)}:</b> quantity is 0; delete_if_empty set to TRUE`).join('');
-    const cleanupFail=(j.failed_zero_locations||[]).map(x=>`<br><b>Could not update delete_if_empty for ${esc(x)}</b>`).join('');
-    $('#processMsg').innerHTML=`<div class="listing-warning"><b>SellerChamp confirmed the inventory update.</b>${cleanupMsg}${cleanupFail}<br><br><b>Current stock at ${esc(j.location||$('#normalLoc').value)}:</b> <span style="font-size:1.35em"><b>${esc(j.quantity_available)}</b></span><br><label>Change quantity if needed</label><div class="row"><input id="correctedStockQty" type="number" inputmode="numeric" min="0" value="${esc(j.quantity_available)}"><button class="secondary" onclick="changeStockQty('${id}')">Update Stock Quantity</button></div><br><b>eBay listing status:</b> ${esc(status.toUpperCase())}<div class="listing-actions">${status==='active'?`<button onclick="archiveActive('${id}')">Quantity Is Correct — Complete & Archive</button>`:`<button onclick="activateAndArchive('${id}')">Activate eBay Item & Archive Return</button><button class="secondary" onclick="leaveInactiveAndArchive('${id}')">Leave Inactive & Archive Return</button>`}</div></div>`;
-    }catch(e){$('#processMsg').textContent=e.message}
-  });
-};
-
+$('#returnDialog').scrollTop=0}catch(e){$('#detail').innerHTML=`<div class="card error">${esc(e.message)}</div>`}};
+function processPanel(r){return `${r.processing_operation||r.inventory_result||r.reserve_result?'<p class="listing-warning"><b>An inventory action is already saved.</b> Use the same action to recheck its saved target. It will not add the quantity again.</p>':''}`+`<div class="card"><h2>Process Return</h2><div class="big-choice"><h3>1. Add back to normal inventory</h3><div id="normalListingStatus" class="listing-warning"><b>eBay listing status:</b> Checking…</div><input id="normalLoc" value="${esc(r.location)}"><input id="normalQty" type="number" inputmode="numeric" value="${esc(r.returned_qty)}"><button onclick="doAdd('${r.id}')">Add to Inventory & Complete</button></div><div class="big-choice"><h3>2. Add to inventory + reserve</h3><input id="reserveLoc" value="${esc(r.location)}"><input id="reserveNote" value="${esc(r.location)}"><input id="reserveQty" inputmode="numeric" type="number" value="${esc(r.returned_qty)}"><button onclick="doReserve('${r.id}')">Add + Reserve & Complete</button></div><div class="big-choice"><h3>3. Create separate eBay product/listing</h3><input id="newSku" value="${esc(r.sku)}-RET"><input id="newTitle" value="${esc(r.title)}"><select id="newCondition"><option value="like_new">Like New</option><option value="very_good">Very Good</option><option value="good">Good</option><option value="acceptable">Acceptable</option><option value="refurbished">Refurbished</option><option value="salvage">Salvage</option></select><textarea id="newRemarks">${esc(r.notes)}</textarea><input id="newLoc" value="${esc(r.location)}"><input id="newQty" type="number" value="${esc(r.returned_qty)}"><input id="newPrice" type="number" step="0.01" placeholder="Price"><button onclick="doDuplicate('${r.id}')">Create & Activate Listing</button></div></div>`}
+let returnActionBusy=false;
+async function runVerifiedReturn(id,mode){
+ if(returnActionBusy)return;
+ const loc=$(mode==='reserve'?'#reserveLoc':'#normalLoc').value,qty=$(mode==='reserve'?'#reserveQty':'#normalQty').value;
+ const note=$('#reserveNote')?.value;
+ returnActionBusy=true;$('#closeResultDialog').disabled=true;
+ $('#processMsg').textContent='Saving and reading the quantities back from SellerChamp. Please wait…';
+ if(!$('#resultDialog').open)$('#resultDialog').showModal();
+ try{
+  const j=await api(`/api/returns/${id}/${mode==='reserve'?'add-reserve':'add-inventory'}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:loc,qty,reserve_location:note})});
+  if(!j.verified||!j.archived)throw Error('Verified completion was not confirmed. The return remains open.');
+  $('#returnDialog').close();$('#detail').innerHTML='';await loadQueue();
+  $('#processMsg').innerHTML=`<div class="verifiedResult"><h3>Verified & Archived</h3><p><b>${esc(j.sku)}</b> · ${esc(j.title)}</p><p>Location: <b>${esc(j.location)}</b></p><p>Stock: ${esc(j.before_quantity)} → <b>${esc(j.quantity_available)}</b></p>${mode==='reserve'?`<p>Reserve: ${esc(j.before_reserve)} → <b>${esc(j.reserve_quantity)}</b></p>`:''}<p>Listing status: ${esc(j.marketplace_status)}. Listing activation was not changed.</p><p>This return is now in Archived Returns.</p><p><a target="_blank" rel="noopener" href="https://app2.sellerchamp.com/products?product%5Bquery%5D=${encodeURIComponent(j.sku||'')}">Open in SellerChamp</a></p></div>`;
+  const button=document.createElement('button');button.textContent='Prepare Signal Message';button.onclick=()=>{showSignalMessage(`- SKU- ${j.sku||''}\n- Location- ${j.location||''}\n- ${j.title||''}\n- Quantity at location - ${j.quantity_available}\n\n- `)};$('#processMsg').appendChild(button);
+ }catch(e){$('#processMsg').textContent=e.message;const retry=document.createElement('button');retry.textContent='Recheck Saved Update';retry.onclick=()=>runVerifiedReturn(id,mode);$('#processMsg').appendChild(retry);}
+ finally{returnActionBusy=false;$('#closeResultDialog').disabled=false;}
+}
+window.doAdd=id=>showInventoryConfirm(()=>runVerifiedReturn(id,'normal'));
 function showInventoryConfirm(onConfirm){
   const old=document.getElementById('inventoryConfirmOverlay'); if(old) old.remove();
   const overlay=document.createElement('div');
@@ -165,7 +173,7 @@ function showInventoryConfirm(onConfirm){
     <button id="inventoryConfirmYes" class="primary" style="width:100%;min-height:70px;font-size:24px;font-weight:800;margin-bottom:14px">YES — ADD TO INVENTORY</button>
     <button id="inventoryConfirmNo" class="secondary" style="width:100%;min-height:58px;font-size:20px">Cancel</button>
   </div>`;
-  document.body.appendChild(overlay);
+  ($('#returnDialog').open?$('#returnDialog'):document.body).appendChild(overlay);
   document.getElementById('inventoryConfirmNo').onclick=()=>overlay.remove();
   document.getElementById('inventoryConfirmYes').onclick=async()=>{overlay.remove();await onConfirm();};
 }
@@ -221,7 +229,7 @@ function showSignalMessage(message){
       <button id="signalCopyBtn" class="primary" style="width:100%;font-size:22px;padding:16px;margin-top:4px">Copy Message & Open Signal</button>
       <button id="signalCloseBtn" style="width:100%;font-size:18px;padding:12px;margin-top:10px">Close</button>
     </div>`;
-  document.body.appendChild(overlay);
+  ($('#resultDialog').open?$('#resultDialog'):document.body).appendChild(overlay);
   const ta=document.getElementById('signalComposeText');
   ta.value=message;
   document.getElementById('signalCloseBtn').onclick=()=>overlay.remove();
@@ -241,26 +249,7 @@ window.leaveInactiveAndArchive=async id=>{
   if(!confirm('Leave the eBay item inactive and archive this return?'))return;
   try{ await api(`/api/returns/${id}/archive-inactive`,{method:'POST'}); $('#detail').innerHTML=''; await loadQueue(); window.scrollTo({top:0,behavior:'smooth'}); }catch(e){$('#processMsg').textContent=e.message}
 };
-window.doReserve=id=>{
-  showReserveConfirm(async()=>{
-    try{
-      const loc=$('#reserveLoc').value, qty=$('#reserveQty').value;
-      $('#processMsg').textContent='Adding inventory, updating reserve, and checking SellerChamp…';
-      const j=await api(`/api/returns/${id}/add-reserve`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:loc,reserve_location:$('#reserveNote').value,qty})});
-      const onMsg=j.on_hand_verified?'CONFIRMED':'CHECK NEEDED';
-      const resMsg=j.reserve_verified?'CONFIRMED':'NOT YET VERIFIED';
-      $('#processMsg').innerHTML=`<div class="listing-warning"><b>SellerChamp update completed. Review before archiving.</b><br><br>
-        <b>Quantity added:</b> ${esc(j.quantity_added)}<br>
-        <b>On hand:</b> ${esc(j.before_on_hand)} → <b>${esc(j.quantity_available)}</b> &nbsp; <b>${onMsg}</b><br>
-        <b>Reserve:</b> ${esc(j.before_reserve)} → <b>${esc(j.reserve_quantity)}</b> &nbsp; <b>${resMsg}</b><br><br>
-        <label>Current On Hand Quantity</label><input id="reviewOnHand" type="number" inputmode="numeric" min="0" value="${esc(j.quantity_available)}">
-        <label>Current Reserve Quantity</label><input id="reviewReserve" type="number" inputmode="numeric" min="0" value="${esc(j.reserve_quantity)}">
-        <div class="row"><button class="secondary" onclick="updateReserveReview('${id}','${esc(j.location)}')">Update Quantities</button></div>
-        <br><button onclick="completeReserveArchive('${id}','${esc(j.location)}')">Quantities Are Correct — Complete & Archive</button>
-      </div>`;
-    }catch(e){$('#processMsg').textContent=e.message}
-  });
-};
+window.doReserve=id=>showReserveConfirm(()=>runVerifiedReturn(id,'reserve'));
 function showReserveConfirm(onConfirm){
   const old=document.getElementById('reserveConfirmOverlay');if(old)old.remove();
   const overlay=document.createElement('div');overlay.id='reserveConfirmOverlay';
@@ -270,7 +259,7 @@ function showReserveConfirm(onConfirm){
     <div style="font-size:20px;line-height:1.4;margin-bottom:22px">Add this quantity to SellerChamp inventory and increase the reserve quantity?</div>
     <button id="reserveConfirmYes" class="primary" style="width:100%;min-height:70px;font-size:24px;font-weight:800;margin-bottom:14px">YES — ADD + RESERVE</button>
     <button id="reserveConfirmNo" class="secondary" style="width:100%;min-height:58px;font-size:20px">Cancel</button></div>`;
-  document.body.appendChild(overlay);$('#reserveConfirmNo').onclick=()=>overlay.remove();$('#reserveConfirmYes').onclick=async()=>{overlay.remove();await onConfirm();};
+  ($('#returnDialog').open?$('#returnDialog'):document.body).appendChild(overlay);$('#reserveConfirmNo').onclick=()=>overlay.remove();$('#reserveConfirmYes').onclick=async()=>{overlay.remove();await onConfirm();};
 }
 window.updateReserveReview=async (id,loc)=>{
   try{
@@ -380,3 +369,9 @@ window.activateDirectProduct=async()=>{
     alert(`Activation request completed. Current SellerChamp status: ${String(j.marketplace_status||directProduct.marketplace_status||'unknown').toUpperCase()}.`);
   }catch(e){alert(e.message);renderDirect(directProduct)}
 };
+
+$('#closeReturnDialog').onclick=()=>{if(!returnActionBusy)$('#returnDialog').close()};
+$('#closeResultDialog').onclick=()=>$('#resultDialog').close();
+$('#resultDialog').addEventListener('cancel',e=>{if(returnActionBusy)e.preventDefault()});
+$('#returnDialog').addEventListener('cancel',e=>{if(returnActionBusy)e.preventDefault()});
+new MutationObserver(()=>{if($('#processMsg').textContent.trim()&&!$('#resultDialog').open)$('#resultDialog').showModal()}).observe($('#processMsg'),{childList:true,subtree:true,characterData:true});
